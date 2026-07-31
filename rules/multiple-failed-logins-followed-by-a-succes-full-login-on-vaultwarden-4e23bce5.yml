@@ -1,0 +1,53 @@
+schema_version: 1
+uuid: 4e23bce5-bc10-4b14-ada5-1e071eef32e5
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Multiple failed logins followed by a succes full login on vaultwarden.
+description: 'Alerts triggers when multiple failed logins are followed by a successfull login to vaultwarden
+  from the same source ip address.
+
+  Requires vaultwarden logging, successfull 100201 and failed 100202.'
+attack_techniques: []
+tags:
+- vaultwarden
+- login
+- authentication
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 5
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 2
+    count_operator: gte
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    display_order: 0
+    conditions:
+    - field_name: rule.id
+      operator: equals
+      value: '100201'
+  - count: 1
+    count_operator: gte
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    display_order: 1
+    conditions:
+    - field_name: rule.id
+      operator: equals
+      value: '100202'
+  tests: []
+required_fields:
+- data.srcip
+- rule.id
