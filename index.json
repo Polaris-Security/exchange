@@ -1,1 +1,43 @@
-
+[
+  {
+    "uuid": "17285a83-1ab9-433d-a962-77a8413a2136",
+    "revision": 1,
+    "kind": "playbook",
+    "status": "active",
+    "status_reason": "",
+    "name": "Brute force response",
+    "description": "A first-responder checklist for a credential-guessing incident: establish whether anything succeeded before deciding how urgent this is, then contain and follow up.\nNote the two steps carrying `intended_*` fields. Those name an action rather than binding to a catalog entry, and they will import as ordinary manual tasks on your deployment — wire them to your own automation deliberately, which is also the moment to think about whether that response should be allowed to run unattended.",
+    "tags": [
+      "brute-force",
+      "containment"
+    ],
+    "attack_techniques": [
+      "T1110"
+    ],
+    "required_fields": [],
+    "path": "playbooks/brute-force-response-17285a83.yml"
+  },
+  {
+    "uuid": "7a0bd02b-45fa-4403-af26-d75384a35078",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "SSH brute force from a single source",
+    "description": "Repeated failed SSH authentication from one source address within a short window — the classic credential-guessing shape. Built entirely on stock Wazuh sshd rule ids (5710 \"attempt to login using a non-existent user\" and 5716 \"authentication failed\"), so it is portable to any deployment running the default ruleset with no local rules required.\nTune `count` to your estate before enabling: 20 in 15 minutes is deliberately conservative and will stay quiet on most networks. A perimeter host exposed to the internet will see this constantly from background noise, which is why the Backtest number matters more than the default.",
+    "tags": [
+      "ssh",
+      "brute-force",
+      "linux"
+    ],
+    "attack_techniques": [
+      "T1110.001"
+    ],
+    "required_fields": [
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/ssh-brute-force-7a0bd02b.yml"
+  }
+]

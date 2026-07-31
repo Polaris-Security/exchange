@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Polaris-Security/exchange/schema/artifact.schema.json",
+  "title": "Exchange Artifact",
+  "description": "One versioned, self-contained, deployment-agnostic unit of security-operations knowledge. Readers ignore unknown keys, so additive changes need no version bump.",
+  "type": "object",
+  "required": ["uuid", "revision", "kind", "name", "spec"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Bumped only on a breaking change to this envelope.",
+      "default": 1
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The artifact's identity. Stable forever — never change it, and never reuse one. Not the path, not the filename, not the git SHA: all three move, and consumers track by UUID."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bump on every change. Consumers compare revisions to decide whether they have work to do; an edit that does not bump is an edit nobody receives."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["search_rule", "playbook"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated", "withdrawn"],
+      "default": "active",
+      "description": "Retraction is a state, never a file deletion — a missing file is indistinguishable from a botched merge. 'deprecated' notifies consumers; 'withdrawn' makes them auto-disable it."
+    },
+    "status_reason": {
+      "type": "string",
+      "description": "Required when status is not 'active'. Shown to the operator on the consuming deployment."
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "attack_techniques": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^T\\d{4}(\\.\\d{3})?$" },
+      "description": "MITRE ATT&CK technique IDs, e.g. T1110 or T1110.001."
+    },
+    "required_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Raw Wazuh field paths the artifact needs. Generated for search rules — derived from the legs so it cannot drift from what the rule actually does. Do not hand-maintain."
+    },
+    "spec": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "search_rule" } } },
+      "then": {
+        "properties": {
+          "spec": {
+            "type": "object",
+            "required": ["legs"],
+            "properties": {
+              "severity": { "enum": ["critical", "high", "medium", "low", "info"], "default": "medium" },
+              "correlation_key": {
+                "enum": ["host.name", "source.ip", "user.name", "file.hash.sha256", "process.name", "none"],
+                "default": "none",
+                "description": "The entity the legs bind on. 'none' correlates across the whole organisation."
+              },
+              "window_minutes": { "type": "integer", "minimum": 1, "default": 60 },
+              "interval_minutes": { "type": "integer", "minimum": 5, "default": 60 },
+              "max_findings_per_run": { "type": "integer", "minimum": 1, "default": 50 },
+              "include_agentless": {
+                "type": "boolean",
+                "default": false,
+                "description": "Also match shared-perimeter documents logged against the Wazuh manager rather than a tenant agent."
+              },
+              "baseline_lookback_days": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 30,
+                "description": "How far back history is consulted for a novelty constraint."
+              },
+              "time_window_start": { "type": ["string", "null"], "description": "HH:MM:SS, org-local." },
+              "time_window_end": { "type": ["string", "null"] },
+              "time_window_days": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1, "maximum": 7 },
+                "description": "ISO weekdays, 1=Mon .. 7=Sun."
+              },
+              "time_window_mode": { "enum": ["inside", "outside"], "default": "inside" },
+              "legs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "count": { "type": "integer", "minimum": 0, "default": 1 },
+                    "count_operator": {
+                      "enum": ["gte", "lte"],
+                      "default": "gte",
+                      "description": "'lte' is an absence firing (a dead-man's switch) and requires correlation_key 'none'."
+                    },
+                    "display_order": { "type": "integer", "minimum": 0 },
+                    "distinct_field": {
+                      "type": "string",
+                      "description": "Diversity constraint: the leg is satisfied only when its documents span at least min_distinct values of this field."
+                    },
+                    "min_distinct": { "type": "integer", "minimum": 1, "default": 1 },
+                    "novelty_field": {
+                      "type": "string",
+                      "description": "Novelty constraint: fires on a value not seen within the baseline lookback."
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["field_name", "operator"],
+                        "properties": {
+                          "field_name": {
+                            "type": "string",
+                            "description": "A raw Wazuh document field path, e.g. rule.id or data.srcip."
+                          },
+                          "operator": { "enum": ["equals", "contains", "gte", "lte", "cidr"] },
+                          "value": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "tests": {
+                "type": "array",
+                "description": "What lets a stranger verify this detection rather than trust it. Samples must be synthetic — they are the likeliest place for real customer data to leak.",
+                "items": {
+                  "type": "object",
+                  "required": ["name"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "description": { "type": "string" },
+                    "expect_fire": { "type": "boolean", "default": true },
+                    "samples": {
+                      "type": "array",
+                      "items": { "type": "object" },
+                      "description": "Synthetic partial raw Wazuh documents."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "playbook" } } },
+      "then": {
+        "properties": {
+          "spec": {
+            "type": "object",
+            "required": ["subject_slug", "items"],
+            "properties": {
+              "subject_slug": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The incident Subject this playbook responds to, by slug. Resolved on import; the operator picks or creates one if no slug matches."
+              },
+              "is_auto_apply": { "type": "boolean", "default": false },
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["title"],
+                  "properties": {
+                    "title": { "type": "string", "minLength": 1 },
+                    "description": { "type": "string" },
+                    "display_order": { "type": "integer", "minimum": 0 },
+                    "intended_automation": {
+                      "type": "string",
+                      "description": "Name only, as free text. Importing deployments deliberately do NOT bind this to their own automation catalog — the step arrives as a manual task naming the intended action, and a human rewires it."
+                    },
+                    "intended_response": {
+                      "type": "string",
+                      "description": "Name only, as free text. Never bound on import: matching it against a locally autonomous-response-approved entry would hand a stranger's playbook the authority to isolate hosts unattended."
+                    },
+                    "is_contact_task": { "type": "boolean", "default": false },
+                    "contact_role": { "type": "string" },
+                    "contact_body": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

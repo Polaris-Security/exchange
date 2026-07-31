@@ -1,0 +1,37 @@
+name: Validate artifacts
+
+# Runs on every pull request. This is the moderation gate's automated half — it catches the
+# things a human reviewer reliably misses (a duplicate uuid, a local rule.id, an IP literal
+# buried in a rule test's sample document). The human half is the review itself.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Validate every artifact
+        run: python scripts/validate_artifacts.py
+
+      - name: Check index.json is current
+        # The index is generated. If a PR changed an artifact, the merge to main will rebuild
+        # it — but a PR that hand-edits index.json (or that would produce a different one) is
+        # worth surfacing rather than silently overwriting.
+        run: |
+          cp index.json /tmp/index.committed.json
+          python scripts/build_index.py
+          if ! diff -q /tmp/index.committed.json index.json > /dev/null; then
+            echo "::notice::index.json will be regenerated on merge — no action needed."
+            diff /tmp/index.committed.json index.json || true
+          fi

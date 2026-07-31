@@ -1,0 +1,107 @@
+schema_version: 1
+uuid: 7a0bd02b-45fa-4403-af26-d75384a35078
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: SSH brute force from a single source
+description: >-
+  Repeated failed SSH authentication from one source address within a short window — the
+  classic credential-guessing shape. Built entirely on stock Wazuh sshd rule ids (5710
+  "attempt to login using a non-existent user" and 5716 "authentication failed"), so it is
+  portable to any deployment running the default ruleset with no local rules required.
+
+  Tune `count` to your estate before enabling: 20 in 15 minutes is deliberately conservative
+  and will stay quiet on most networks. A perimeter host exposed to the internet will see this
+  constantly from background noise, which is why the Backtest number matters more than the
+  default.
+
+tags:
+  - ssh
+  - brute-force
+  - linux
+attack_techniques:
+  - T1110.001
+
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 15
+  interval_minutes: 15
+  max_findings_per_run: 50
+  include_agentless: false
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 20
+      count_operator: gte
+      display_order: 0
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: authentication_failed
+        - field_name: decoder.name
+          operator: equals
+          value: sshd
+
+  tests:
+    - name: fires on sustained failures from one source
+      description: >-
+        Twenty failed authentications from one address inside the window. Only three samples
+        are shown; the matcher counts documents, so this documents the shape rather than the
+        threshold.
+      expect_fire: true
+      samples:
+        - rule:
+            id: "5710"
+            groups: ["syslog", "sshd", "authentication_failed"]
+          decoder:
+            name: sshd
+          data:
+            srcip: 198.51.100.24
+            dstuser: root
+          agent:
+            name: example-host-01
+        - rule:
+            id: "5710"
+            groups: ["syslog", "sshd", "authentication_failed"]
+          decoder:
+            name: sshd
+          data:
+            srcip: 198.51.100.24
+            dstuser: admin
+          agent:
+            name: example-host-01
+        - rule:
+            id: "5716"
+            groups: ["syslog", "sshd", "authentication_failed"]
+          decoder:
+            name: sshd
+          data:
+            srcip: 198.51.100.24
+            dstuser: deploy
+          agent:
+            name: example-host-01
+
+    - name: does not fire on a successful login
+      description: A normal authentication carries no authentication_failed group.
+      expect_fire: false
+      samples:
+        - rule:
+            id: "5715"
+            groups: ["syslog", "sshd", "authentication_success"]
+          decoder:
+            name: sshd
+          data:
+            srcip: 198.51.100.24
+            dstuser: deploy
+          agent:
+            name: example-host-01

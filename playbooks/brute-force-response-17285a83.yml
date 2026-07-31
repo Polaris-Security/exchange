@@ -1,0 +1,74 @@
+schema_version: 1
+uuid: 17285a83-1ab9-433d-a962-77a8413a2136
+revision: 1
+kind: playbook
+status: active
+status_reason: ""
+
+name: Brute force response
+description: >-
+  A first-responder checklist for a credential-guessing incident: establish whether anything
+  succeeded before deciding how urgent this is, then contain and follow up.
+
+  Note the two steps carrying `intended_*` fields. Those name an action rather than binding to
+  a catalog entry, and they will import as ordinary manual tasks on your deployment — wire them
+  to your own automation deliberately, which is also the moment to think about whether that
+  response should be allowed to run unattended.
+
+tags:
+  - brute-force
+  - containment
+attack_techniques:
+  - T1110
+
+spec:
+  subject_slug: brute-force
+  is_auto_apply: false
+
+  items:
+    - title: Confirm the source is genuinely external
+      description: >-
+        Check the source address against the customer's own ranges, VPN egress, and any
+        scanners or pentest engagements you know about. A surprising share of "brute force"
+        is a misconfigured backup agent or the customer's own vulnerability scanner.
+      display_order: 0
+
+    - title: Establish whether any attempt succeeded
+      description: >-
+        The failure count is not the finding — a success after the failures is. Search the same
+        window for a successful authentication from that source, and for the accounts that were
+        targeted. This determines whether the rest of this playbook is cleanup or incident
+        response.
+      display_order: 1
+
+    - title: Check what the targeted accounts can reach
+      description: >-
+        For any account that was hit hard or that succeeded: what does it have access to, is it
+        privileged, and is it used interactively or by a service?
+      display_order: 2
+
+    - title: Block the source at the perimeter
+      description: >-
+        Only once you have confirmed it is external and not a customer system. Prefer a
+        time-bounded block — attacker infrastructure is usually short-lived, and permanent
+        blocks accumulate into a rule set nobody dares to prune.
+      display_order: 3
+      intended_response: firewall-drop
+
+    - title: Force a credential reset on any compromised account
+      description: Only where a success was confirmed. Coordinate with the customer first.
+      display_order: 4
+      intended_automation: reset-account-credentials
+
+    - title: Tell the customer what happened
+      description: >-
+        What was attempted, whether anything succeeded, what you did about it, and what you
+        need from them. Send this even when nothing succeeded — a blocked attack is still
+        something they should know their SOC caught.
+      display_order: 5
+      is_contact_task: true
+      contact_role: technical
+      contact_body: >-
+        We detected repeated failed login attempts against your infrastructure from an external
+        source. Our analysis so far and the action we have taken are summarised in the incident.
+        We will follow up with anything further we find.
