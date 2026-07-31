@@ -18,6 +18,26 @@
     "path": "playbooks/brute-force-response-17285a83.yml"
   },
   {
+    "uuid": "4e23bce5-bc10-4b14-ada5-1e071eef32e5",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Multiple failed logins followed by a succes full login on vaultwarden.",
+    "description": "Alerts triggers when multiple failed logins are followed by a successfull login to vaultwarden from the same source ip address.\nRequires vaultwarden logging, successfull 100201 and failed 100202.",
+    "tags": [
+      "vaultwarden",
+      "login",
+      "authentication"
+    ],
+    "attack_techniques": [],
+    "required_fields": [
+      "data.srcip",
+      "rule.id"
+    ],
+    "path": "rules/multiple-failed-logins-followed-by-a-succes-full-login-on-vaultwarden-4e23bce5.yml"
+  },
+  {
     "uuid": "7a0bd02b-45fa-4403-af26-d75384a35078",
     "revision": 1,
     "kind": "search_rule",
