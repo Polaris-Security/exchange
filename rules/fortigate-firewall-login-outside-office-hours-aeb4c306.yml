@@ -1,0 +1,47 @@
+schema_version: 1
+uuid: aeb4c306-6743-4adc-b2f9-fbb507bcc3a2
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: FortiGate Firewall Login Outside Office Hours
+description: This rule detects logins to a fortigate firewall outside normal office hours.
+attack_techniques: []
+tags:
+- fortinet
+- authentication
+spec:
+  severity: medium
+  correlation_key: none
+  window_minutes: 60
+  interval_minutes: 15
+  max_findings_per_run: 50
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: outside
+  time_window_start: 09:00:00
+  time_window_end: '18:00:00'
+  time_window_days:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  legs:
+  - count: 1
+    count_operator: gte
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    display_order: 0
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: fortigate
+    - field_name: rule.id
+      operator: equals
+      value: '81626'
+  tests: []
+required_fields:
+- rule.groups
+- rule.id
