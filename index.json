@@ -18,6 +18,25 @@
     "path": "playbooks/brute-force-response-17285a83.yml"
   },
   {
+    "uuid": "aeb4c306-6743-4adc-b2f9-fbb507bcc3a2",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "FortiGate Firewall Login Outside Office Hours",
+    "description": "This rule detects logins to a fortigate firewall outside normal office hours.",
+    "tags": [
+      "fortinet",
+      "authentication"
+    ],
+    "attack_techniques": [],
+    "required_fields": [
+      "rule.groups",
+      "rule.id"
+    ],
+    "path": "rules/fortigate-firewall-login-outside-office-hours-aeb4c306.yml"
+  },
+  {
     "uuid": "4e23bce5-bc10-4b14-ada5-1e071eef32e5",
     "revision": 1,
     "kind": "search_rule",
