@@ -1,0 +1,46 @@
+schema_version: 1
+uuid: 00736dec-424d-47ed-a4b5-df5482a88baa
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Incoming Port Scan from Internet (Fortigate Outside Interface)
+description: Rule detects a incomming port scan from the internet, triggers when more than 300 distinct
+  ports have been scanned.
+attack_techniques:
+- T0846.001
+tags:
+- fortigate
+- scanning
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 15
+  interval_minutes: 5
+  max_findings_per_run: 50
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 300
+    count_operator: gte
+    distinct_field: data.dstport
+    min_distinct: 250
+    novelty_field: ''
+    display_order: 0
+    conditions:
+    - field_name: rule.id
+      operator: equals
+      value: '100500'
+    - field_name: data.srcintf
+      operator: equals
+      value: outside
+  tests: []
+required_fields:
+- data.dstport
+- data.srcintf
+- data.srcip
+- rule.id
