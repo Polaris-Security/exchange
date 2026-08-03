@@ -37,6 +37,29 @@
     "path": "rules/fortigate-firewall-login-outside-office-hours-aeb4c306.yml"
   },
   {
+    "uuid": "00736dec-424d-47ed-a4b5-df5482a88baa",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Incoming Port Scan from Internet (Fortigate Outside Interface)",
+    "description": "Rule detects a incomming port scan from the internet, triggers when more than 300 distinct ports have been scanned.",
+    "tags": [
+      "fortigate",
+      "scanning"
+    ],
+    "attack_techniques": [
+      "T0846.001"
+    ],
+    "required_fields": [
+      "data.dstport",
+      "data.srcintf",
+      "data.srcip",
+      "rule.id"
+    ],
+    "path": "rules/incoming-port-scan-from-internet-fortigate-outside-interface-00736dec.yml"
+  },
+  {
     "uuid": "4e23bce5-bc10-4b14-ada5-1e071eef32e5",
     "revision": 1,
     "kind": "search_rule",
