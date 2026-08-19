@@ -18,6 +18,31 @@
     "path": "playbooks/brute-force-response-17285a83.yml"
   },
   {
+    "uuid": "35cc0328-b7e5-48c2-ac71-79fbac2335b6",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Failed mail logins followed by a successful login from the same source",
+    "description": "A source address that fails mailbox authentication several times and then succeeds inside the same window. This is the moment a credential-guessing run stops being an attempt and becomes an intrusion, and it is the single highest-value correlation on a mail server: a mailbox is enough to read everything the account has ever received and to send as that person.\nThe two legs are deliberately allowed to come from different decoders. On a typical Mailu deployment the failures surface on the edge proxy while the success is logged by the mailbox server behind it, so pinning both legs to one decoder name would make the rule unfirable. Both legs are scoped by `decoder.name contains mailu` and share the `source.ip` correlation key.\nRequires decoders whose names contain `mailu` emitting the stock `authentication_failed` and `authentication_success` rule groups with `data.srcip` populated on both — see Portability in the pull request. Without them this artifact imports cleanly and never fires.\nVolume: zero findings over six days on the reference deployment. Every one of 6,577 successful mailbox logins in that period came from an internal address, while every failure came from the internet, so the two legs never shared a source. That is the expected steady state — this rule is meant to be silent, and a single finding is worth waking someone for.",
+    "tags": [
+      "mail",
+      "imap",
+      "authentication",
+      "credential-access"
+    ],
+    "attack_techniques": [
+      "T1110.003",
+      "T1078.003"
+    ],
+    "required_fields": [
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/mail-failed-logins-followed-by-successful-login-35cc0328.yml"
+  },
+  {
     "uuid": "aeb4c306-6743-4adc-b2f9-fbb507bcc3a2",
     "revision": 1,
     "kind": "search_rule",
@@ -58,6 +83,57 @@
       "rule.id"
     ],
     "path": "rules/incoming-port-scan-from-internet-fortigate-outside-interface-00736dec.yml"
+  },
+  {
+    "uuid": "6bc7b4d0-b754-4152-ba24-af5d84ce8a76",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Low-and-slow password spraying against a mail service",
+    "description": "One source address failing authentication against many different mailboxes over hours rather than seconds. This is spraying (T1110.003) rather than brute force: the attacker walks a dictionary of likely local parts — info@, support@, admin@, test@, webmaster@ — trying one or two passwords each, and never generates the burst that a rate-based rule looks for.\nThe window is deliberately six hours. On the reference deployment the actor that motivated this rule averaged well under one attempt per fifteen minutes and never touched more than three distinct mailboxes in any single hour. A conventional \"N failures in 15 minutes\" rule — including the SSH brute-force artifact in this same repo — is completely silent against it. What separates the attacker from ordinary users is not rate, it is the number of *distinct* accounts, which is why the leg keys on min_distinct rather than on count alone.\nRequires a decoder whose name contains `mailu` emitting the stock `authentication_failed` rule group with `data.srcip` and `data.dstuser` populated — see Portability in the pull request. Any mail decoder that does the same satisfies it; without one this artifact imports cleanly and never fires.\nVolume: over a six-day window on a single-domain mail server, one source produced 282 failed authentications across 54 distinct mailboxes, reaching 14 distinct mailboxes inside a single six-hour window. Every other source in the same period reached at most 3, and all but one reached exactly 1. A threshold of 8 separates them with room on both sides. Expect one finding per spraying source, not per attempt.",
+    "tags": [
+      "mail",
+      "smtp",
+      "imap",
+      "spraying",
+      "brute-force"
+    ],
+    "attack_techniques": [
+      "T1110.003"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/low-and-slow-password-spraying-against-mail-6bc7b4d0.yml"
+  },
+  {
+    "uuid": "9d992288-d3bf-419b-91e2-e57f989b2f0a",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Mailbox authenticating from a previously unseen source address",
+    "description": "A mailbox logging in successfully from an address it has never used before, judged against a thirty-day per-account baseline. This is the detection that survives a stolen password: the credential is valid, the login succeeds, nothing fails, and the only thing that is unusual is where it came from.\nIt is deliberately a novelty rule and not a counting rule. Counting distinct source addresses per account does not work on real mail users — on the reference deployment one ordinary account legitimately authenticated from eleven different addresses in six days through roaming between mobile and fixed networks, while two other accounts used exactly one each. Any count threshold high enough to clear the roaming user is far above anything an attacker needs. Novelty against that account's own history is the discriminator, and `baseline_lookback_days` is what makes it one.\nExpect noise proportional to how much your users travel, and treat the severity as a triage hint rather than a verdict. Pair it with the geolocation your platform already has if you have it; a new address in the same city is not the same finding as a new address on another continent.\nRequires a decoder whose name contains `mailu` emitting the stock `authentication_success` rule group with `data.dstuser` and `data.srcip` populated — see Portability in the pull request. Without it this artifact imports cleanly and never fires.\nVolume: on the reference deployment 6,577 successful logins over six days resolved to 13 distinct source addresses across 3 accounts. After the thirty-day baseline is warm this should produce a finding only when someone genuinely appears from somewhere new, which for a stable estate is a handful per month.",
+    "tags": [
+      "mail",
+      "imap",
+      "authentication",
+      "anomaly"
+    ],
+    "attack_techniques": [
+      "T1078.003"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/mailbox-login-from-previously-unseen-source-9d992288.yml"
   },
   {
     "uuid": "4e23bce5-bc10-4b14-ada5-1e071eef32e5",
