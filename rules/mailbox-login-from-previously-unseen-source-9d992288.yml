@@ -1,0 +1,103 @@
+schema_version: 1
+uuid: 9d992288-d3bf-419b-91e2-e57f989b2f0a
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Mailbox authenticating from a previously unseen source address
+description: >-
+  A mailbox logging in successfully from an address it has never used before, judged
+  against a thirty-day per-account baseline. This is the detection that survives a
+  stolen password: the credential is valid, the login succeeds, nothing fails, and the
+  only thing that is unusual is where it came from.
+
+  It is deliberately a novelty rule and not a counting rule. Counting distinct source
+  addresses per account does not work on real mail users — on the reference deployment
+  one ordinary account legitimately authenticated from eleven different addresses in six
+  days through roaming between mobile and fixed networks, while two other accounts used
+  exactly one each. Any count threshold high enough to clear the roaming user is far
+  above anything an attacker needs. Novelty against that account's own history is the
+  discriminator, and `baseline_lookback_days` is what makes it one.
+
+  Expect noise proportional to how much your users travel, and treat the severity as a
+  triage hint rather than a verdict. Pair it with the geolocation your platform already
+  has if you have it; a new address in the same city is not the same finding as a new
+  address on another continent.
+
+  Requires a decoder whose name contains `mailu` emitting the stock
+  `authentication_success` rule group with `data.dstuser` and `data.srcip` populated —
+  see Portability in the pull request. Without it this artifact imports cleanly and
+  never fires.
+
+  Volume: on the reference deployment 6,577 successful logins over six days resolved to
+  13 distinct source addresses across 3 accounts. After the thirty-day baseline is warm
+  this should produce a finding only when someone genuinely appears from somewhere new,
+  which for a stable estate is a handful per month.
+
+tags:
+  - mail
+  - imap
+  - authentication
+  - anomaly
+attack_techniques:
+  - T1078.003
+
+spec:
+  severity: medium
+  correlation_key: user.name
+  window_minutes: 60
+  interval_minutes: 30
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 1
+      count_operator: gte
+      display_order: 0
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: data.srcip
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: authentication_success
+        - field_name: decoder.name
+          operator: contains
+          value: mailu
+
+  tests:
+    - name: fires on a successful login from an address new to that account
+      description: >-
+        A single successful mailbox login. Whether it fires depends on the thirty-day
+        baseline for data.dstuser rather than on anything in the document, so this
+        sample documents the field shape the novelty check needs: an account, a source
+        address, and the authentication_success group.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["mail", "mailu_dovecot", "authentication_success"]}
+          decoder: {name: mailu-dovecot}
+          data: {srcip: 198.51.100.90, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on a failed login
+      description: >-
+        A failure carries no authentication_success group. An attacker who never gets
+        in is the spraying artifact's business, not this one's.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 198.51.100.90, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+
+required_fields:
+  - data.dstuser
+  - data.srcip
+  - decoder.name
+  - rule.groups
