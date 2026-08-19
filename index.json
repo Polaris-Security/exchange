@@ -18,6 +18,183 @@
     "path": "playbooks/brute-force-response-17285a83.yml"
   },
   {
+    "uuid": "3fc50eb3-9464-4d0b-8661-e7ee65f716f0",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik authentication object deletion burst",
+    "description": "Five or more authentik objects deleted inside thirty minutes. Legitimate administration removes flows, policies, providers and stages one at a time; a burst is either a blueprint rollback or someone dismantling the authentication path ahead of an intrusion.\n\nUngrouped by design - `correlation_key: none`. The actor is in `data.dstuser`, but the detection is about the estate, not the operator, and a burst split across two admin accounts is more alarming rather than less.\n\nVolume: 35 deletions in 30 days on the reference deployment, never more than two in any half hour.\n\nRequires a decoder named `authentik` emitting the `policy_changed` rule group.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "policy",
+      "defense-evasion"
+    ],
+    "attack_techniques": [
+      "T1562.001"
+    ],
+    "required_fields": [
+      "data.action",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/authentik-authentication-object-deletion-burst-3fc50eb3.yml"
+  },
+  {
+    "uuid": "cf59bca1-9033-401a-8278-3b5795fb110a",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik brute force from a single source",
+    "description": "Repeated failed sign-ins to an authentik identity provider from one address inside a short window. Covers both halves of credential guessing: `login_failed` (known user, wrong secret) and `invalid_identifier` (username does not resolve at all), which authentik reports as distinct actions.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nVolume: the reference deployment saw 6 failed sign-ins in 30 days across ~40 accounts, so 10 in 15 minutes is roughly two orders of magnitude above baseline and has never fired unprompted. An internet-facing IdP will need a higher count.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "brute-force",
+      "authentication"
+    ],
+    "attack_techniques": [
+      "T1110.001"
+    ],
+    "required_fields": [
+      "data.event",
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/authentik-brute-force-from-a-single-source-cf59bca1.yml"
+  },
+  {
+    "uuid": "42117270-490a-4e51-8b89-fc1b00ad6386",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik impersonation followed by secret access",
+    "description": "An administrator starting an impersonation session and then reading a token or certificate secret within the hour. Impersonation is a legitimate support tool, and reading a secret is a legitimate administrative act; the sequence is what is worth seeing, because impersonation moves the operator into someone else's authorisation context before the secret is read.\n\nVolume: 3 impersonations and 8 secret reads in 30 days on the reference deployment; the sequence never observed.\n\nRequires a decoder named `authentik` emitting the `impersonation_started` and `secret_view` audit actions.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "impersonation",
+      "credential-access"
+    ],
+    "attack_techniques": [
+      "T1548",
+      "T1552"
+    ],
+    "required_fields": [
+      "data.action",
+      "data.dstuser",
+      "decoder.name"
+    ],
+    "path": "rules/authentik-impersonation-followed-by-secret-access-42117270.yml"
+  },
+  {
+    "uuid": "4b3ae71c-4f17-40dc-96b2-52e2d35bc6c4",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik MFA device removed then password set by the same operator",
+    "description": "An authenticator device deleted and a password set by the same operator inside an hour - the account-takeover sequence, whether run by a compromised admin session or by an attacker who already holds a session and is removing the second factor before persisting.\n\nCorrelates on the operator (`data.dstuser`), not the victim: authentik records the acting user on the audit event and the affected object under `data.context.model`, which is not a correlation key. A helpdesk agent legitimately resetting an account will match this, so treat it as an event worth a question rather than an incident.\n\nVolume: 1 password_set in 30 days on the reference deployment; the pair never observed.\n\nRequires a decoder named `authentik` emitting audit actions and `data.context.model.app`.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "mfa",
+      "account-takeover"
+    ],
+    "attack_techniques": [
+      "T1556.006",
+      "T1098"
+    ],
+    "required_fields": [
+      "data.action",
+      "data.context.model.app",
+      "data.dstuser",
+      "decoder.name"
+    ],
+    "path": "rules/authentik-mfa-device-removed-then-password-set-by-the-same-operator-4b3ae71c.yml"
+  },
+  {
+    "uuid": "e2ec4337-52d4-4ba1-ac81-a4cfecf8fef7",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik password spraying from a single source",
+    "description": "One address attempting sign-in against many different accounts - the low-and-slow inverse of brute force, where each account sees too few failures to trip a per-account threshold.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nThe diversity constraint is what separates this from rule-1 brute force: ten failures against one account is guessing, ten against five accounts is enumeration.\n\nVolume: never observed on the reference deployment in 30 days.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "password-spraying",
+      "authentication"
+    ],
+    "attack_techniques": [
+      "T1110.003"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "data.event",
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/authentik-password-spraying-from-a-single-source-e2ec4337.yml"
+  },
+  {
+    "uuid": "85958e09-25fd-4d85-8f94-4fccb8bed7cb",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik secret enumeration by a single operator",
+    "description": "Five or more token or certificate secrets read by one operator inside fifteen minutes. Reading one secret is administration; sweeping the store is collection, and is what an attacker does with a stolen admin session before moving laterally to whatever those tokens authenticate.\n\nVolume: 8 secret reads in 30 days on the reference deployment, never more than two together.\n\nRequires a decoder named `authentik` emitting the `secret_view` audit action.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "secrets",
+      "credential-access"
+    ],
+    "attack_techniques": [
+      "T1552"
+    ],
+    "required_fields": [
+      "data.action",
+      "data.dstuser",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/authentik-secret-enumeration-by-a-single-operator-85958e09.yml"
+  },
+  {
+    "uuid": "d99d8f5b-101c-4fbb-a886-1b2abd05024d",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Authentik successful sign-in after repeated failures from one source",
+    "description": "A run of failed sign-ins from one address followed by a success from that same address - the shape of credential guessing that worked, and the highest-value single detection an identity provider can offer.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nCorrelates on address rather than username deliberately. authentik records the *submitted* identifier on a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree about who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.\n\nVolume: never observed on the reference deployment. Expect occasional benign hits from a user who mistypes a password several times and then succeeds - tune leg 0 upward if that is common in your estate.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "tags": [
+      "authentik",
+      "identity-provider",
+      "brute-force",
+      "authentication"
+    ],
+    "attack_techniques": [
+      "T1110"
+    ],
+    "required_fields": [
+      "data.action",
+      "data.event",
+      "data.srcip",
+      "decoder.name",
+      "rule.groups"
+    ],
+    "path": "rules/authentik-successful-sign-in-after-repeated-failures-from-one-source-d99d8f5b.yml"
+  },
+  {
     "uuid": "35cc0328-b7e5-48c2-ac71-79fbac2335b6",
     "revision": 1,
     "kind": "search_rule",
