@@ -1,0 +1,143 @@
+schema_version: 1
+uuid: cf59bca1-9033-401a-8278-3b5795fb110a
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Authentik brute force from a single source
+description: 'Repeated failed sign-ins to an authentik identity provider from one address inside a short
+  window. Covers both halves of credential guessing: `login_failed` (known user, wrong secret) and `invalid_identifier`
+  (username does not resolve at all), which authentik reports as distinct actions.
+
+
+  The `data.event: "Created Event"` condition is load-bearing, not decoration. authentik emits three separate
+  records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation
+  `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone
+  therefore triples every threshold, and two of the three carry no client address at all. `Created Event`
+  selects only the audit record: one per attempt, always addressed.
+
+
+  Volume: the reference deployment saw 6 failed sign-ins in 30 days across ~40 accounts, so 10 in 15 minutes
+  is roughly two orders of magnitude above baseline and has never fired unprompted. An internet-facing
+  IdP will need a higher count.
+
+
+  Requires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client
+  address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it
+  must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability
+  in the pull request.'
+tags:
+- authentik
+- identity-provider
+- brute-force
+- authentication
+attack_techniques:
+- T1110.001
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 15
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 10
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: decoder.name
+      operator: equals
+      value: authentik
+    - field_name: rule.groups
+      operator: contains
+      value: authentication_failed
+    - field_name: data.event
+      operator: equals
+      value: Created Event
+  tests:
+  - name: fires on repeated failures from one address
+    description: Ten audit-path failures from one address inside the window. Three samples shown; the
+      matcher counts documents, so this documents shape not threshold.
+    expect_fire: true
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: nosuchuser
+        action: invalid_identifier
+      agent:
+        name: example-host-01
+  - name: does not fire on the stage and reputation echoes
+    description: The two non-audit records for the same attempt. Neither is a `Created Event`, so neither
+      is counted - this is what stops one attempt counting as three.
+    expect_fire: false
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Invalid credentials
+        srcip: 198.51.100.24
+        dstuser: alice
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Updated score
+        srcip: 198.51.100.24
+        dstuser: alice
+      agent:
+        name: example-host-01
+required_fields:
+- data.event
+- data.srcip
+- decoder.name
+- rule.groups
