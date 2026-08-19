@@ -1,0 +1,121 @@
+schema_version: 1
+uuid: 3fc50eb3-9464-4d0b-8661-e7ee65f716f0
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Authentik authentication object deletion burst
+description: 'Five or more authentik objects deleted inside thirty minutes. Legitimate administration
+  removes flows, policies, providers and stages one at a time; a burst is either a blueprint rollback
+  or someone dismantling the authentication path ahead of an intrusion.
+
+
+  Ungrouped by design - `correlation_key: none`. The actor is in `data.dstuser`, but the detection is
+  about the estate, not the operator, and a burst split across two admin accounts is more alarming rather
+  than less.
+
+
+  Volume: 35 deletions in 30 days on the reference deployment, never more than two in any half hour.
+
+
+  Requires a decoder named `authentik` emitting the `policy_changed` rule group.'
+tags:
+- authentik
+- identity-provider
+- policy
+- defense-evasion
+attack_techniques:
+- T1562.001
+spec:
+  severity: high
+  correlation_key: none
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 5
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: decoder.name
+      operator: equals
+      value: authentik
+    - field_name: rule.groups
+      operator: contains
+      value: policy_changed
+    - field_name: data.action
+      operator: equals
+      value: model_deleted
+  tests:
+  - name: fires on a burst of deletions
+    description: Five authentication objects deleted inside the window.
+    expect_fire: true
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - policy_changed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: model_deleted
+        context:
+          model:
+            model_name: flow
+            app: authentik_flows
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - policy_changed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: model_deleted
+        context:
+          model:
+            model_name: policybinding
+            app: authentik_policies
+      agent:
+        name: example-host-01
+  - name: does not fire on object creation
+    description: Blueprint application creates objects in bursts routinely.
+    expect_fire: false
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - policy_changed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: model_created
+        context:
+          model:
+            model_name: flow
+            app: authentik_flows
+      agent:
+        name: example-host-01
+required_fields:
+- data.action
+- decoder.name
+- rule.groups

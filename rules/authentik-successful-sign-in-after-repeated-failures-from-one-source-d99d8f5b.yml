@@ -1,0 +1,152 @@
+schema_version: 1
+uuid: d99d8f5b-101c-4fbb-a886-1b2abd05024d
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Authentik successful sign-in after repeated failures from one source
+description: 'A run of failed sign-ins from one address followed by a success from that same address -
+  the shape of credential guessing that worked, and the highest-value single detection an identity provider
+  can offer.
+
+
+  The `data.event: "Created Event"` condition is load-bearing, not decoration. authentik emits three separate
+  records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation
+  `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone
+  therefore triples every threshold, and two of the three carry no client address at all. `Created Event`
+  selects only the audit record: one per attempt, always addressed.
+
+
+  Correlates on address rather than username deliberately. authentik records the *submitted* identifier
+  on a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree
+  about who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.
+
+
+  Volume: never observed on the reference deployment. Expect occasional benign hits from a user who mistypes
+  a password several times and then succeeds - tune leg 0 upward if that is common in your estate.
+
+
+  Requires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client
+  address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it
+  must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability
+  in the pull request.'
+tags:
+- authentik
+- identity-provider
+- brute-force
+- authentication
+attack_techniques:
+- T1110
+spec:
+  severity: high
+  correlation_key: source.ip
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 5
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - &id001
+      field_name: decoder.name
+      operator: equals
+      value: authentik
+    - field_name: rule.groups
+      operator: contains
+      value: authentication_failed
+    - &id002
+      field_name: data.event
+      operator: equals
+      value: Created Event
+  - count: 1
+    count_operator: gte
+    display_order: 1
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - *id001
+    - field_name: rule.groups
+      operator: contains
+      value: authentication_success
+    - *id002
+    - field_name: data.action
+      operator: equals
+      value: login
+  tests:
+  - name: fires when failures are followed by a success
+    description: Five failures then a successful sign-in from the same address.
+    expect_fire: true
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+      agent:
+        name: example-host-01
+    - rule:
+        groups:
+        - authentik
+        - authentication_success
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login
+      agent:
+        name: example-host-01
+  - name: does not fire on failures alone
+    description: Without the second leg this is rule-1 brute force.
+    expect_fire: false
+    samples:
+    - rule:
+        groups:
+        - authentik
+        - authentication_failed
+      decoder:
+        name: authentik
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+      agent:
+        name: example-host-01
+required_fields:
+- data.action
+- data.event
+- data.srcip
+- decoder.name
+- rule.groups
