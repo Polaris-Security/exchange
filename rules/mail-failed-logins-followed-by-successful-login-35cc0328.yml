@@ -1,0 +1,136 @@
+schema_version: 1
+uuid: 35cc0328-b7e5-48c2-ac71-79fbac2335b6
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Failed mail logins followed by a successful login from the same source
+description: >-
+  A source address that fails mailbox authentication several times and then succeeds
+  inside the same window. This is the moment a credential-guessing run stops being an
+  attempt and becomes an intrusion, and it is the single highest-value correlation on
+  a mail server: a mailbox is enough to read everything the account has ever received
+  and to send as that person.
+
+  The two legs are deliberately allowed to come from different decoders. On a typical
+  Mailu deployment the failures surface on the edge proxy while the success is logged
+  by the mailbox server behind it, so pinning both legs to one decoder name would make
+  the rule unfirable. Both legs are scoped by `decoder.name contains mailu` and share
+  the `source.ip` correlation key.
+
+  Requires decoders whose names contain `mailu` emitting the stock
+  `authentication_failed` and `authentication_success` rule groups with `data.srcip`
+  populated on both — see Portability in the pull request. Without them this artifact
+  imports cleanly and never fires.
+
+  Volume: zero findings over six days on the reference deployment. Every one of 6,577
+  successful mailbox logins in that period came from an internal address, while every
+  failure came from the internet, so the two legs never shared a source. That is the
+  expected steady state — this rule is meant to be silent, and a single finding is
+  worth waking someone for.
+
+tags:
+  - mail
+  - imap
+  - authentication
+  - credential-access
+attack_techniques:
+  - T1110.003
+  - T1078.003
+
+spec:
+  severity: critical
+  correlation_key: source.ip
+  window_minutes: 360
+  interval_minutes: 30
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 5
+      count_operator: gte
+      display_order: 0
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: authentication_failed
+        - field_name: decoder.name
+          operator: contains
+          value: mailu
+    - count: 1
+      count_operator: gte
+      display_order: 1
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: authentication_success
+        - field_name: decoder.name
+          operator: contains
+          value: mailu
+
+  tests:
+    - name: fires when failures from a source are followed by a success
+      description: >-
+        Failures on the edge proxy and then a success on the mailbox server, all from
+        one address. Three failure samples are shown rather than the full five; the
+        matcher counts documents, so this documents the two-leg shape and the shared
+        data.srcip rather than the threshold.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 203.0.113.77, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 203.0.113.77, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 203.0.113.77, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["mail", "mailu_dovecot", "authentication_success"]}
+          decoder: {name: mailu-dovecot}
+          data: {srcip: 203.0.113.77, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on failures alone
+      description: >-
+        A guessing run that never succeeds satisfies only the first leg. That shape is
+        covered by the spraying artifact, not by this one.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 203.0.113.77, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["mail", "mailu_front", "authentication_failed"]}
+          decoder: {name: mailu-front}
+          data: {srcip: 203.0.113.77, dstuser: bob@example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on an ordinary successful login
+      description: A user logging in cleanly satisfies only the second leg.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["mail", "mailu_dovecot", "authentication_success"]}
+          decoder: {name: mailu-dovecot}
+          data: {srcip: 192.0.2.15, dstuser: alice@example.com}
+          agent: {name: example-host-01}
+
+required_fields:
+  - data.srcip
+  - decoder.name
+  - rule.groups
