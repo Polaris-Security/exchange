@@ -1,0 +1,132 @@
+schema_version: 1
+uuid: c7695c06-c7fe-4741-9b0f-5f1b8502ac93
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: One source refused by several independent reverse-proxy controls
+description: >-
+  A single source address refused by three or more DIFFERENT access-control plugins
+  inside the same window - for example a DNS blocklist hit, then a user-agent
+  blacklist, then a behavioural ban. Each control answers a different question about
+  the caller: where it has been, what it claims to be, and what it has just been doing.
+  One of them refusing a request is routine and enormously common. Three independent
+  ones refusing the same address inside a few minutes means the caller is failing every
+  test the proxy has, which no ordinary client does.
+
+  The diversity constraint is the whole rule. `min_distinct` is applied to the field
+  naming which control fired, so a thousand refusals from one blocklist never satisfy
+  it - only breadth across controls does. That makes this rule insensitive to the
+  volume of whichever blocklist happens to be loudest on a given estate, which is what
+  makes a fixed threshold portable at all.
+
+  Requires a decoder whose name contains `bunkerweb` emitting an `invalid_access` rule
+  group with `data.srcip` and `data.bw_deny_source` populated, where `bw_deny_source`
+  names the plugin that refused the request - see Portability in the pull request.
+  `data.bw_deny_source` is specific to a BunkerWeb decoder; on any other reverse proxy
+  the equivalent field will be named differently and this artifact will import cleanly
+  and never fire.
+
+  Volume: zero on the reference deployment. Every one of 321 refusals in the sample
+  window came from the DNS blocklist alone, so no address ever tripped a second control.
+  This rule is meant to be silent, and that silence is itself informative - it says the
+  first control is catching things before the others get a chance to.
+
+tags:
+  - bunkerweb
+  - waf
+  - reverse-proxy
+  - access-control
+  - reputation
+attack_techniques:
+  - T1595
+
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 15
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 3
+      count_operator: gte
+      display_order: 0
+      distinct_field: data.bw_deny_source
+      min_distinct: 3
+      novelty_field: ''
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: invalid_access
+        - field_name: decoder.name
+          operator: contains
+          value: bunkerweb
+
+  tests:
+    - name: fires when three different controls refuse the same source
+      description: >-
+        A blocklist hit, a user-agent blacklist hit and a behavioural ban, all against
+        one address. Three distinct `data.bw_deny_source` values is what satisfies the
+        leg.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: dnsbl, vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: blacklist, vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: badbehavior, vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on many refusals from one control
+      description: >-
+        The ordinary case, and the one this rule must not report: a blocklisted address
+        being refused over and over by the same plugin. Volume without diversity.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: dnsbl, vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: dnsbl, vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: dnsbl, vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on two controls
+      description: >-
+        Two controls is common enough to be uninteresting - a blocklisted address that
+        also sends a scanner user-agent trips both without being notable.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack", "recon"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: dnsbl, vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "invalid_access", "attack"]}
+          decoder: {name: bunkerweb-plugin}
+          data: {srcip: 203.0.113.44, bw_deny_source: blacklist, vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+required_fields:
+  - data.bw_deny_source
+  - data.srcip
+  - decoder.name
+  - rule.groups
