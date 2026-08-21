@@ -1,0 +1,128 @@
+schema_version: 1
+uuid: 5ec3d05c-6d45-47d6-bf30-c2836ec24221
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Web path enumeration from a single source
+description: >-
+  One source address requesting many distinct paths that have no legitimate caller -
+  dotfiles and source control (`/.env`, `/.git/config`), credential files, CMS and
+  admin panels, PHP entry points. Individually each request is a shrug: it was refused,
+  or it 404ed, and one of them means nothing. The pattern is the finding, which is why
+  this belongs in a scheduled search rather than in a per-event rule.
+
+  The leg selects the `web_scan` group rather than a status code, so it fires whether
+  the reverse proxy blocked the request, the application 404ed it, or - worst case -
+  it was served. What separates a sweep from a person mistyping a URL is the diversity
+  constraint: at least ten DISTINCT paths inside the window, not just ten requests.
+  A retry loop against one path never satisfies it.
+
+  Requires a decoder whose name contains `bunkerweb` emitting the `web_scan` rule group
+  with `data.srcip` and `data.url` populated - see Portability in the pull request.
+  Without it this artifact imports cleanly and never fires.
+
+  Volume: on the reference deployment - one internet-facing reverse proxy in front of
+  roughly forty sites - nine distinct source addresses satisfied this in a forty-five
+  minute sample, sweeping between 18 and 283 distinct paths each. Expect findings
+  continuously on any estate exposed to the internet; that is the steady state of the
+  public web, and the value here is one finding per sweep instead of several hundred
+  individual alerts. Tighten `min_distinct` if your estate is noisier.
+
+tags:
+  - bunkerweb
+  - waf
+  - reverse-proxy
+  - web
+  - scanning
+  - recon
+attack_techniques:
+  - T1595.003
+
+spec:
+  severity: medium
+  correlation_key: source.ip
+  window_minutes: 10
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 15
+      count_operator: gte
+      display_order: 0
+      distinct_field: data.url
+      min_distinct: 10
+      novelty_field: ''
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: web_scan
+        - field_name: decoder.name
+          operator: contains
+          value: bunkerweb
+
+  tests:
+    - name: fires on a sweep across many distinct paths
+      description: >-
+        One source walking dotfiles, credential files and CMS paths. Four samples are
+        shown rather than the full fifteen; the matcher counts documents, so this
+        documents the shape and the distinct `data.url` values rather than the
+        threshold.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["bunkerweb", "accesslog", "web", "web_scan", "recon"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 203.0.113.44, url: /.env, status: '403', vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "accesslog", "web", "web_scan", "recon"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 203.0.113.44, url: /.git/config, status: '404', vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "accesslog", "web", "web_scan", "attack"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 203.0.113.44, url: /wp-admin/setup-config.php, status: '404', vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "modsecurity", "web", "attack", "web_scan", "recon"]}
+          decoder: {name: bunkerweb-modsec}
+          data: {srcip: 203.0.113.44, url: /credentials.json, ruleid: '930130', vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on repeated requests for one path
+      description: >-
+        A broken client retrying a single path produces volume without diversity. The
+        `distinct_field` constraint is what rejects it, and it is the reason this rule
+        does not simply count requests.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["bunkerweb", "accesslog", "web", "web_scan", "recon"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 203.0.113.44, url: /.env, status: '403', vhost: shop.example.com}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "accesslog", "web", "web_scan", "recon"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 203.0.113.44, url: /.env, status: '403', vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+    - name: does not fire on ordinary application traffic
+      description: >-
+        A user browsing many distinct pages never enters the `web_scan` group, because
+        that group is only ever set on paths with no legitimate caller.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["bunkerweb", "accesslog", "web"]}
+          decoder: {name: bunkerweb-accesslog}
+          data: {srcip: 192.0.2.15, url: /api/v1/orders, status: '200', vhost: shop.example.com}
+          agent: {name: example-host-01}
+
+required_fields:
+  - data.srcip
+  - data.url
+  - decoder.name
+  - rule.groups

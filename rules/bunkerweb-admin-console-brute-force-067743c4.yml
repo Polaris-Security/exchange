@@ -1,0 +1,108 @@
+schema_version: 1
+uuid: 067743c4-05c5-406b-a423-c5161563ccf4
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Repeated sign-in attempts against the BunkerWeb admin console
+description: >-
+  Several sign-in attempts against the BunkerWeb web UI from one source address inside
+  a short window. That console configures every access-control policy the reverse proxy
+  enforces - blacklists, rate limits, WAF settings, TLS - so an account on it is worth
+  more than an account on anything sitting behind it. It should see a handful of
+  sign-ins a week from a small set of known addresses, and nothing else.
+
+  The leg counts ATTEMPTS, not failures, and that is deliberate. BunkerWeb logs the
+  attempt before the outcome is known - `Login attempt from <ip> with username "<user>"`
+  - and what it prints on a failed sign-in is not documented. A leg written against a
+  guessed failure string is a rule that passes review, imports cleanly and never fires;
+  counting attempts needs no such guess and cannot silently rot if the failure wording
+  changes. The cost is that five legitimate sign-ins in ten minutes would also fire,
+  which on an admin console is itself worth a look.
+
+  Requires a decoder whose name contains `bunkerweb` emitting an `authentication_attempt`
+  rule group with `data.srcip` populated - see Portability in the pull request. Without
+  it this artifact imports cleanly and never fires.
+
+  Volume: one attempt in fourteen days on the reference deployment, from an internal
+  address. This rule is meant to be silent, and a single finding is worth acting on.
+
+tags:
+  - bunkerweb
+  - waf
+  - reverse-proxy
+  - admin-console
+  - brute-force
+  - authentication
+attack_techniques:
+  - T1110.001
+
+spec:
+  severity: high
+  correlation_key: source.ip
+  window_minutes: 10
+  interval_minutes: 15
+  max_findings_per_run: 10
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 5
+      count_operator: gte
+      display_order: 0
+      distinct_field: ''
+      min_distinct: 1
+      novelty_field: ''
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: authentication_attempt
+        - field_name: decoder.name
+          operator: contains
+          value: bunkerweb
+
+  tests:
+    - name: fires on repeated attempts from one source
+      description: >-
+        Several attempts from one address inside the window, against more than one
+        username. Three samples are shown rather than the full five; the matcher counts
+        documents, so this documents the shape rather than the threshold.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["bunkerweb", "bunkerweb-ui", "authentication", "authentication_attempt"]}
+          decoder: {name: bunkerweb-app}
+          data: {srcip: 203.0.113.44, dstuser: admin}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "bunkerweb-ui", "authentication", "authentication_attempt"]}
+          decoder: {name: bunkerweb-app}
+          data: {srcip: 203.0.113.44, dstuser: administrator}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "bunkerweb-ui", "authentication", "authentication_attempt"]}
+          decoder: {name: bunkerweb-app}
+          data: {srcip: 203.0.113.44, dstuser: alice}
+          agent: {name: example-host-01}
+
+    - name: does not fire on a single sign-in
+      description: >-
+        One administrator signing in normally. The attempt and the success that follows
+        it are one event each, and neither is interesting on its own.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["bunkerweb", "bunkerweb-ui", "authentication", "authentication_attempt"]}
+          decoder: {name: bunkerweb-app}
+          data: {srcip: 192.0.2.15, dstuser: alice}
+          agent: {name: example-host-01}
+        - rule: {groups: ["bunkerweb", "bunkerweb-ui", "authentication", "authentication_success"]}
+          decoder: {name: bunkerweb-app}
+          data: {srcip: 192.0.2.15, dstuser: alice}
+          agent: {name: example-host-01}
+
+required_fields:
+  - data.srcip
+  - decoder.name
+  - rule.groups
