@@ -334,12 +334,12 @@
   },
   {
     "uuid": "c7695c06-c7fe-4741-9b0f-5f1b8502ac93",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "One source refused by several independent reverse-proxy controls",
-    "description": "A single source address refused by three or more DIFFERENT access-control plugins inside the same window - for example a DNS blocklist hit, then a user-agent blacklist, then a behavioural ban. Each control answers a different question about the caller: where it has been, what it claims to be, and what it has just been doing. One of them refusing a request is routine and enormously common. Three independent ones refusing the same address inside a few minutes means the caller is failing every test the proxy has, which no ordinary client does.\nThe diversity constraint is the whole rule. `min_distinct` is applied to the field naming which control fired, so a thousand refusals from one blocklist never satisfy it - only breadth across controls does. That makes this rule insensitive to the volume of whichever blocklist happens to be loudest on a given estate, which is what makes a fixed threshold portable at all.\nRequires a decoder whose name contains `bunkerweb` emitting an `invalid_access` rule group with `data.srcip` and `data.bw_deny_source` populated, where `bw_deny_source` names the plugin that refused the request - see Portability in the pull request. `data.bw_deny_source` is specific to a BunkerWeb decoder; on any other reverse proxy the equivalent field will be named differently and this artifact will import cleanly and never fire.\nVolume: zero on the reference deployment. Every one of 321 refusals in the sample window came from the DNS blocklist alone, so no address ever tripped a second control. This rule is meant to be silent, and that silence is itself informative - it says the first control is catching things before the others get a chance to.",
+    "description": "A single source address refused by three or more DIFFERENT access-control plugins inside the same window - for example a DNS blocklist hit, then a user-agent blacklist, then a behavioural ban. Each control answers a different question about the caller: where it has been, what it claims to be, and what it has just been doing. One of them refusing a request is routine and enormously common. Three independent ones refusing the same address inside a few minutes means the caller is failing every test the proxy has, which no ordinary client does.\nThe diversity constraint is the whole rule. `min_distinct` is applied to the field naming which control fired, so a thousand refusals from one blocklist never satisfy it - only breadth across controls does. That makes this rule insensitive to the volume of whichever blocklist happens to be loudest on a given estate, which is what makes a fixed threshold portable at all.\nRequires a decoder whose name contains `bunkerweb` emitting an `invalid_access` rule group with `data.srcip` and `data.bw_deny_source` populated, where `bw_deny_source` names the plugin that refused the request - see Portability in the pull request. `data.bw_deny_source` is specific to a BunkerWeb decoder; on any other reverse proxy the equivalent field will be named differently and this artifact will import cleanly and never fire.\nScoping note (revision 2): the legs scope to the application with `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains` condition compiles to a `match` query that requires the WHOLE term - it matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`, `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule wants actually lives. Revision 1 had that bug and could not fire at all; measured against a live index, the two conditions it required intersected on zero documents. The application name is carried as a rule GROUP on every rule of the family, and matches correctly as an exact term inside that array.\nVolume: zero on the reference deployment. Every one of 321 refusals in the sample window came from the DNS blocklist alone, so no address ever tripped a second control. This rule is meant to be silent, and that silence is itself informative - it says the first control is catching things before the others get a chance to.",
     "tags": [
       "bunkerweb",
       "waf",
@@ -353,19 +353,18 @@
     "required_fields": [
       "data.bw_deny_source",
       "data.srcip",
-      "decoder.name",
       "rule.groups"
     ],
     "path": "rules/bunkerweb-multiple-access-controls-tripped-c7695c06.yml"
   },
   {
     "uuid": "067743c4-05c5-406b-a423-c5161563ccf4",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Repeated sign-in attempts against the BunkerWeb admin console",
-    "description": "Several sign-in attempts against the BunkerWeb web UI from one source address inside a short window. That console configures every access-control policy the reverse proxy enforces - blacklists, rate limits, WAF settings, TLS - so an account on it is worth more than an account on anything sitting behind it. It should see a handful of sign-ins a week from a small set of known addresses, and nothing else.\nThe leg counts ATTEMPTS, not failures, and that is deliberate. BunkerWeb logs the attempt before the outcome is known - `Login attempt from <ip> with username \"<user>\"` - and what it prints on a failed sign-in is not documented. A leg written against a guessed failure string is a rule that passes review, imports cleanly and never fires; counting attempts needs no such guess and cannot silently rot if the failure wording changes. The cost is that five legitimate sign-ins in ten minutes would also fire, which on an admin console is itself worth a look.\nRequires a decoder whose name contains `bunkerweb` emitting an `authentication_attempt` rule group with `data.srcip` populated - see Portability in the pull request. Without it this artifact imports cleanly and never fires.\nVolume: one attempt in fourteen days on the reference deployment, from an internal address. This rule is meant to be silent, and a single finding is worth acting on.",
+    "description": "Several sign-in attempts against the BunkerWeb web UI from one source address inside a short window. That console configures every access-control policy the reverse proxy enforces - blacklists, rate limits, WAF settings, TLS - so an account on it is worth more than an account on anything sitting behind it. It should see a handful of sign-ins a week from a small set of known addresses, and nothing else.\nThe leg counts ATTEMPTS, not failures, and that is deliberate. BunkerWeb logs the attempt before the outcome is known - `Login attempt from <ip> with username \"<user>\"` - and what it prints on a failed sign-in is not documented. A leg written against a guessed failure string is a rule that passes review, imports cleanly and never fires; counting attempts needs no such guess and cannot silently rot if the failure wording changes. The cost is that five legitimate sign-ins in ten minutes would also fire, which on an admin console is itself worth a look.\nRequires a decoder whose name contains `bunkerweb` emitting an `authentication_attempt` rule group with `data.srcip` populated - see Portability in the pull request. Without it this artifact imports cleanly and never fires.\nScoping note (revision 2): the legs scope to the application with `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains` condition compiles to a `match` query that requires the WHOLE term - it matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`, `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule wants actually lives. Revision 1 had that bug and could not fire at all; measured against a live index, the two conditions it required intersected on zero documents. The application name is carried as a rule GROUP on every rule of the family, and matches correctly as an exact term inside that array.\nVolume: one attempt in fourteen days on the reference deployment, from an internal address. This rule is meant to be silent, and a single finding is worth acting on.",
     "tags": [
       "bunkerweb",
       "waf",
@@ -379,7 +378,6 @@
     ],
     "required_fields": [
       "data.srcip",
-      "decoder.name",
       "rule.groups"
     ],
     "path": "rules/bunkerweb-admin-console-brute-force-067743c4.yml"
@@ -409,12 +407,12 @@
   },
   {
     "uuid": "f2286404-5786-4ac0-977e-f356a94d3cbe",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Web enumeration followed by exploitation from the same source",
-    "description": "A source address that first enumerates paths on a site and then sends a request the WAF recognises as an actual attack payload - SQL injection, cross-site scripting, command execution, remote or local file inclusion. Enumeration on its own is the background noise of the public internet. Enumeration that turns into exploitation is somebody acting on what they found, and that is a different event.\nThe two legs are deliberately keyed on different rule groups rather than different severities. `web_scan` is set by the rules that answer \"is this file here?\" and \"who is asking?\"; `exploit_attempt` is set by the rules that answer \"do this to the target\". Both would otherwise carry only a generic `attack` group, and a leg condition has no negation - so a source that merely probed for `/.env` would satisfy both legs and the rule would fire on plain scanning, which is precisely what it exists to filter out.\nRequires a decoder whose name contains `bunkerweb` emitting BOTH the `web_scan` and `exploit_attempt` rule groups with `data.srcip` populated, and keeping those two groups disjoint - see Portability in the pull request. Without that separation this artifact degrades into the enumeration rule, and without the groups it imports cleanly and never fires.\nVolume: on the reference deployment - one internet-facing reverse proxy in front of roughly forty sites - three of eight enumerating sources also tripped a WAF attack rule inside a forty-five minute sample. Expect this to be materially rarer than enumeration alone, and to be worth looking at when it fires.",
+    "description": "A source address that first enumerates paths on a site and then sends a request the WAF recognises as an actual attack payload - SQL injection, cross-site scripting, command execution, remote or local file inclusion. Enumeration on its own is the background noise of the public internet. Enumeration that turns into exploitation is somebody acting on what they found, and that is a different event.\nThe two legs are deliberately keyed on different rule groups rather than different severities. `web_scan` is set by the rules that answer \"is this file here?\" and \"who is asking?\"; `exploit_attempt` is set by the rules that answer \"do this to the target\". Both would otherwise carry only a generic `attack` group, and a leg condition has no negation - so a source that merely probed for `/.env` would satisfy both legs and the rule would fire on plain scanning, which is precisely what it exists to filter out.\nRequires a decoder whose name contains `bunkerweb` emitting BOTH the `web_scan` and `exploit_attempt` rule groups with `data.srcip` populated, and keeping those two groups disjoint - see Portability in the pull request. Without that separation this artifact degrades into the enumeration rule, and without the groups it imports cleanly and never fires.\nScoping note (revision 2): the legs scope to the application with `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains` condition compiles to a `match` query that requires the WHOLE term - it matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`, `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule wants actually lives. Revision 1 had that bug and could not fire at all; measured against a live index, the two conditions it required intersected on zero documents. The application name is carried as a rule GROUP on every rule of the family, and matches correctly as an exact term inside that array.\nVolume: on the reference deployment - one internet-facing reverse proxy in front of roughly forty sites - three of eight enumerating sources also tripped a WAF attack rule inside a forty-five minute sample. Expect this to be materially rarer than enumeration alone, and to be worth looking at when it fires.",
     "tags": [
       "bunkerweb",
       "waf",
@@ -430,19 +428,18 @@
     "required_fields": [
       "data.srcip",
       "data.url",
-      "decoder.name",
       "rule.groups"
     ],
     "path": "rules/bunkerweb-enumeration-then-exploitation-f2286404.yml"
   },
   {
     "uuid": "5ec3d05c-6d45-47d6-bf30-c2836ec24221",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Web path enumeration from a single source",
-    "description": "One source address requesting many distinct paths that have no legitimate caller - dotfiles and source control (`/.env`, `/.git/config`), credential files, CMS and admin panels, PHP entry points. Individually each request is a shrug: it was refused, or it 404ed, and one of them means nothing. The pattern is the finding, which is why this belongs in a scheduled search rather than in a per-event rule.\nThe leg selects the `web_scan` group rather than a status code, so it fires whether the reverse proxy blocked the request, the application 404ed it, or - worst case - it was served. What separates a sweep from a person mistyping a URL is the diversity constraint: at least ten DISTINCT paths inside the window, not just ten requests. A retry loop against one path never satisfies it.\nRequires a decoder whose name contains `bunkerweb` emitting the `web_scan` rule group with `data.srcip` and `data.url` populated - see Portability in the pull request. Without it this artifact imports cleanly and never fires.\nVolume: on the reference deployment - one internet-facing reverse proxy in front of roughly forty sites - nine distinct source addresses satisfied this in a forty-five minute sample, sweeping between 18 and 283 distinct paths each. Expect findings continuously on any estate exposed to the internet; that is the steady state of the public web, and the value here is one finding per sweep instead of several hundred individual alerts. Tighten `min_distinct` if your estate is noisier.",
+    "description": "One source address requesting many distinct paths that have no legitimate caller - dotfiles and source control (`/.env`, `/.git/config`), credential files, CMS and admin panels, PHP entry points. Individually each request is a shrug: it was refused, or it 404ed, and one of them means nothing. The pattern is the finding, which is why this belongs in a scheduled search rather than in a per-event rule.\nThe leg selects the `web_scan` group rather than a status code, so it fires whether the reverse proxy blocked the request, the application 404ed it, or - worst case - it was served. What separates a sweep from a person mistyping a URL is the diversity constraint: at least ten DISTINCT paths inside the window, not just ten requests. A retry loop against one path never satisfies it.\nRequires a decoder whose name contains `bunkerweb` emitting the `web_scan` rule group with `data.srcip` and `data.url` populated - see Portability in the pull request. Without it this artifact imports cleanly and never fires.\nScoping note (revision 2): the legs scope to the application with `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains` condition compiles to a `match` query that requires the WHOLE term - it matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`, `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule wants actually lives. Revision 1 had that bug and could not fire at all; measured against a live index, the two conditions it required intersected on zero documents. The application name is carried as a rule GROUP on every rule of the family, and matches correctly as an exact term inside that array.\nVolume: on the reference deployment - one internet-facing reverse proxy in front of roughly forty sites - nine distinct source addresses satisfied this in a forty-five minute sample, sweeping between 18 and 283 distinct paths each. Expect findings continuously on any estate exposed to the internet; that is the steady state of the public web, and the value here is one finding per sweep instead of several hundred individual alerts. Tighten `min_distinct` if your estate is noisier.",
     "tags": [
       "bunkerweb",
       "waf",
@@ -457,7 +454,6 @@
     "required_fields": [
       "data.srcip",
       "data.url",
-      "decoder.name",
       "rule.groups"
     ],
     "path": "rules/bunkerweb-web-path-enumeration-5ec3d05c.yml"
