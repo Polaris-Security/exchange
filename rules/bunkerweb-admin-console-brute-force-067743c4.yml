@@ -1,6 +1,6 @@
 schema_version: 1
 uuid: 067743c4-05c5-406b-a423-c5161563ccf4
-revision: 1
+revision: 2
 kind: search_rule
 status: active
 status_reason: ""
@@ -24,6 +24,17 @@ description: >-
   Requires a decoder whose name contains `bunkerweb` emitting an `authentication_attempt`
   rule group with `data.srcip` populated - see Portability in the pull request. Without
   it this artifact imports cleanly and never fires.
+
+  Scoping note (revision 2): the legs scope to the application with
+  `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a
+  Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains`
+  condition compiles to a `match` query that requires the WHOLE term - it
+  matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`,
+  `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule
+  wants actually lives. Revision 1 had that bug and could not fire at all;
+  measured against a live index, the two conditions it required intersected on
+  zero documents. The application name is carried as a rule GROUP on every rule
+  of the family, and matches correctly as an exact term inside that array.
 
   Volume: one attempt in fourteen days on the reference deployment, from an internal
   address. This rule is meant to be silent, and a single finding is worth acting on.
@@ -62,7 +73,7 @@ spec:
         - field_name: rule.groups
           operator: contains
           value: authentication_attempt
-        - field_name: decoder.name
+        - field_name: rule.groups
           operator: contains
           value: bunkerweb
 
@@ -104,5 +115,4 @@ spec:
 
 required_fields:
   - data.srcip
-  - decoder.name
   - rule.groups

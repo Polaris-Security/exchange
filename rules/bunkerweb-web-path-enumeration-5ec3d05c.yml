@@ -1,6 +1,6 @@
 schema_version: 1
 uuid: 5ec3d05c-6d45-47d6-bf30-c2836ec24221
-revision: 1
+revision: 2
 kind: search_rule
 status: active
 status_reason: ""
@@ -22,6 +22,17 @@ description: >-
   Requires a decoder whose name contains `bunkerweb` emitting the `web_scan` rule group
   with `data.srcip` and `data.url` populated - see Portability in the pull request.
   Without it this artifact imports cleanly and never fires.
+
+  Scoping note (revision 2): the legs scope to the application with
+  `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a
+  Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains`
+  condition compiles to a `match` query that requires the WHOLE term - it
+  matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`,
+  `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule
+  wants actually lives. Revision 1 had that bug and could not fire at all;
+  measured against a live index, the two conditions it required intersected on
+  zero documents. The application name is carried as a rule GROUP on every rule
+  of the family, and matches correctly as an exact term inside that array.
 
   Volume: on the reference deployment - one internet-facing reverse proxy in front of
   roughly forty sites - nine distinct source addresses satisfied this in a forty-five
@@ -64,7 +75,7 @@ spec:
         - field_name: rule.groups
           operator: contains
           value: web_scan
-        - field_name: decoder.name
+        - field_name: rule.groups
           operator: contains
           value: bunkerweb
 
@@ -124,5 +135,4 @@ spec:
 required_fields:
   - data.srcip
   - data.url
-  - decoder.name
   - rule.groups

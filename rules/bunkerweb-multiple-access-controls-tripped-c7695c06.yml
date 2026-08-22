@@ -1,6 +1,6 @@
 schema_version: 1
 uuid: c7695c06-c7fe-4741-9b0f-5f1b8502ac93
-revision: 1
+revision: 2
 kind: search_rule
 status: active
 status_reason: ""
@@ -27,6 +27,17 @@ description: >-
   `data.bw_deny_source` is specific to a BunkerWeb decoder; on any other reverse proxy
   the equivalent field will be named differently and this artifact will import cleanly
   and never fire.
+
+  Scoping note (revision 2): the legs scope to the application with
+  `rule.groups contains bunkerweb`, NOT `decoder.name contains bunkerweb`. On a
+  Wazuh alerts index `decoder.name` is a **keyword** field, so a `contains`
+  condition compiles to a `match` query that requires the WHOLE term - it
+  matches a decoder named exactly `bunkerweb` and never `bunkerweb-accesslog`,
+  `bunkerweb-modsec` or `bunkerweb-plugin`, which is where every event this rule
+  wants actually lives. Revision 1 had that bug and could not fire at all;
+  measured against a live index, the two conditions it required intersected on
+  zero documents. The application name is carried as a rule GROUP on every rule
+  of the family, and matches correctly as an exact term inside that array.
 
   Volume: zero on the reference deployment. Every one of 321 refusals in the sample
   window came from the DNS blocklist alone, so no address ever tripped a second control.
@@ -66,7 +77,7 @@ spec:
         - field_name: rule.groups
           operator: contains
           value: invalid_access
-        - field_name: decoder.name
+        - field_name: rule.groups
           operator: contains
           value: bunkerweb
 
@@ -128,5 +139,4 @@ spec:
 required_fields:
   - data.bw_deny_source
   - data.srcip
-  - decoder.name
   - rule.groups
