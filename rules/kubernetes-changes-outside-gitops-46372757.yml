@@ -1,0 +1,106 @@
+schema_version: 1
+uuid: 46372757-ac09-4cce-adfe-a637af0d8893
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Kubernetes RBAC or admission-webhook changes outside GitOps
+description: >-
+  One identity makes three or more changes to RBAC objects or admission webhook
+  configurations inside an hour, without being the cluster's GitOps controller.
+
+  On a cluster where every object is applied from git, a hand-made change to the
+  authorisation layer is drift at best. A burst of them is someone granting
+  access or installing a webhook, and an admission webhook sees and can rewrite
+  every object it matches, which makes it a durable foothold.
+
+  This detection assumes the deploying ruleset already excludes the legitimate
+  writers - the GitOps controller, the garbage collector, the aggregation
+  controller - so that reaching this rule already means "not the usual writer".
+  Grouped on user.name so three changes by three controllers do not add up.
+
+  Requires a Kubernetes API audit decoder emitting the `kube_audit` rule group,
+  with unexpected RBAC and webhook writes classified as `kube_drift` - see
+  Portability in the pull request. Without those groups this artifact imports
+  cleanly and never fires.
+
+  Volume on the reference deployment (a 6-node k3s cluster, ~16,000 audit
+  events/day): 175 RBAC writes in 24h, of which exactly 1 was outside the
+  GitOps allowlist. At a threshold of 3 it is meant to be silent.
+
+tags: [kubernetes, k3s, api-audit, rbac, admission-control, persistence]
+attack_techniques: [T1098, T1546]
+
+spec:
+  severity: high
+  correlation_key: user.name
+  window_minutes: 60
+  interval_minutes: 30
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+
+  legs:
+    - count: 3
+      count_operator: gte
+      display_order: 0
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: kube_drift
+        - field_name: rule.groups
+          operator: contains
+          value: kube_audit
+
+  tests:
+    - name: fires on a burst of hand-made RBAC changes
+      description: >-
+        Three ClusterRoleBinding writes by one person inside the window, none of
+        them from the GitOps controller.
+      expect_fire: true
+      samples:
+        - rule: {groups: [kubernetes, kube_audit, kube_drift, kube_rbac_drift]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: alice
+            srcip: 192.0.2.10
+            verb: create
+            objectRef: {resource: clusterrolebindings, name: example-binding}
+            responseStatus: {code: "201"}
+        - rule: {groups: [kubernetes, kube_audit, kube_drift, kube_webhook_drift]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: alice
+            srcip: 192.0.2.10
+            verb: create
+            objectRef: {resource: mutatingwebhookconfigurations, name: example-webhook}
+            responseStatus: {code: "201"}
+    - name: does not fire on a single change
+      description: >-
+        One hand-applied binding is ordinary administration; the deploying
+        ruleset already alerts on it individually if that matters locally.
+      expect_fire: false
+      samples:
+        - rule: {groups: [kubernetes, kube_audit, kube_drift, kube_rbac_drift]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: deploy
+            srcip: 198.51.100.24
+            verb: patch
+            objectRef: {resource: roles, namespace: example, name: example-role}
+            responseStatus: {code: "200"}
+
+required_fields:
+  - data.dstuser
+  - rule.groups

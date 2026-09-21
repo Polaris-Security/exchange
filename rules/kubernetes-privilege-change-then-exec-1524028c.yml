@@ -1,0 +1,131 @@
+schema_version: 1
+uuid: 1524028c-c246-4dca-9763-847723c8d98b
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Kubernetes privilege change followed by interactive pod access
+description: >-
+  The same identity changes RBAC or an admission webhook and then opens an
+  interactive session into a pod within the hour.
+
+  Either half alone is ordinary on most clusters: administrators edit RBAC, and
+  administrators exec into pods. The sequence is the interesting part - grant
+  the access, then use it - and it is the same shape whether the identity is a
+  person working outside change control or a stolen credential being exercised.
+
+  Both legs are grouped on user.name, so an unrelated administrator exec in the
+  same hour as someone else's RBAC change does not combine into a finding.
+
+  Requires a Kubernetes API audit decoder emitting the `kube_audit` rule group,
+  with unexpected RBAC/webhook writes classified as `kube_drift` and
+  exec/attach/ephemeralcontainers access classified as `kube_exec` - see
+  Portability in the pull request. Without those groups this artifact imports
+  cleanly and never fires.
+
+  Volume on the reference deployment (a 6-node k3s cluster, ~16,000 audit
+  events/day): the two legs occurred 1 and 15 times respectively in 24h and
+  never for the same identity, so the correlation produced nothing. It is meant
+  to be silent.
+
+tags: [kubernetes, k3s, api-audit, rbac, privilege-escalation, lateral-movement]
+attack_techniques: [T1098, T1609]
+
+spec:
+  severity: critical
+  correlation_key: user.name
+  window_minutes: 60
+  interval_minutes: 30
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+
+  legs:
+    - count: 1
+      count_operator: gte
+      display_order: 0
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: kube_drift
+        - field_name: rule.groups
+          operator: contains
+          value: kube_audit
+    - count: 1
+      count_operator: gte
+      display_order: 1
+      distinct_field: ""
+      min_distinct: 1
+      novelty_field: ""
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: kube_exec
+        - field_name: rule.groups
+          operator: contains
+          value: kube_audit
+
+  tests:
+    - name: fires when one identity grants access then uses it
+      description: >-
+        A ClusterRoleBinding created and a pod exec opened by the same identity
+        inside the window. Both legs must be satisfied for the same user.name.
+      expect_fire: true
+      samples:
+        - rule: {groups: [kubernetes, kube_audit, kube_drift, kube_rbac_drift]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: alice
+            srcip: 192.0.2.10
+            verb: create
+            objectRef: {resource: clusterrolebindings, name: example-binding}
+            responseStatus: {code: "201"}
+        - rule: {groups: [kubernetes, kube_audit, kube_exec, kube_exec_human]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: alice
+            srcip: 192.0.2.10
+            verb: get
+            stage: ResponseStarted
+            objectRef: {resource: pods, subresource: exec, namespace: example, name: example-pod}
+            responseStatus: {code: "101"}
+    - name: does not fire when the two halves are different identities
+      description: >-
+        One person edits RBAC, another execs into a pod. Routine on any cluster
+        with more than one administrator, and the reason both legs are grouped
+        on user.name.
+      expect_fire: false
+      samples:
+        - rule: {groups: [kubernetes, kube_audit, kube_drift, kube_rbac_drift]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: alice
+            srcip: 192.0.2.10
+            verb: create
+            objectRef: {resource: clusterrolebindings, name: example-binding}
+            responseStatus: {code: "201"}
+        - rule: {groups: [kubernetes, kube_audit, kube_exec, kube_exec_human]}
+          decoder: {name: kube-audit}
+          agent: {name: example-host-01}
+          data:
+            dstuser: deploy
+            srcip: 198.51.100.24
+            verb: get
+            stage: ResponseStarted
+            objectRef: {resource: pods, subresource: exec, namespace: example, name: example-pod}
+            responseStatus: {code: "101"}
+
+required_fields:
+  - data.dstuser
+  - rule.groups
