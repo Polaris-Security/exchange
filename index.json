@@ -262,6 +262,83 @@
     "path": "rules/incoming-port-scan-from-internet-fortigate-outside-interface-00736dec.yml"
   },
   {
+    "uuid": "596a3636-5031-4f4e-8dde-2caabddf8493",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Kubernetes credential probing by one identity",
+    "description": "One Kubernetes API identity is refused access to Secrets, ServiceAccounts or RBAC objects five or more times inside an hour.\nThis is the shape a compromised workload makes while it works out what its ServiceAccount token can reach: the requests are denied, nothing changes, and the only trace is a run of 401/403 responses from a single identity. A controller with a genuine RBAC gap produces the same pattern, which is worth knowing about too - it is an unowned permission error either way.\nGrouped on user.name, so five denials spread across five identities do not reach the threshold and one identity probing five resources does.\nRequires a Kubernetes API audit decoder emitting the `kube_audit` rule group, with denied access to credential or RBAC objects classified as `kube_denied` - see Portability in the pull request. Without those groups this artifact imports cleanly and never fires.\nVolume on the reference deployment (a 6-node k3s cluster, ~16,000 audit events/day): 2 such denials in 24h, peak 2 per identity per 30 minutes. At a threshold of 5 it is meant to be silent.",
+    "tags": [
+      "kubernetes",
+      "k3s",
+      "api-audit",
+      "credential-access",
+      "rbac"
+    ],
+    "attack_techniques": [
+      "T1552.007",
+      "T1613"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/kubernetes-credential-probing-596a3636.yml"
+  },
+  {
+    "uuid": "1524028c-c246-4dca-9763-847723c8d98b",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Kubernetes privilege change followed by interactive pod access",
+    "description": "The same identity changes RBAC or an admission webhook and then opens an interactive session into a pod within the hour.\nEither half alone is ordinary on most clusters: administrators edit RBAC, and administrators exec into pods. The sequence is the interesting part - grant the access, then use it - and it is the same shape whether the identity is a person working outside change control or a stolen credential being exercised.\nBoth legs are grouped on user.name, so an unrelated administrator exec in the same hour as someone else's RBAC change does not combine into a finding.\nRequires a Kubernetes API audit decoder emitting the `kube_audit` rule group, with unexpected RBAC/webhook writes classified as `kube_drift` and exec/attach/ephemeralcontainers access classified as `kube_exec` - see Portability in the pull request. Without those groups this artifact imports cleanly and never fires.\nVolume on the reference deployment (a 6-node k3s cluster, ~16,000 audit events/day): the two legs occurred 1 and 15 times respectively in 24h and never for the same identity, so the correlation produced nothing. It is meant to be silent.",
+    "tags": [
+      "kubernetes",
+      "k3s",
+      "api-audit",
+      "rbac",
+      "privilege-escalation",
+      "lateral-movement"
+    ],
+    "attack_techniques": [
+      "T1098",
+      "T1609"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/kubernetes-privilege-change-then-exec-1524028c.yml"
+  },
+  {
+    "uuid": "46372757-ac09-4cce-adfe-a637af0d8893",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Kubernetes RBAC or admission-webhook changes outside GitOps",
+    "description": "One identity makes three or more changes to RBAC objects or admission webhook configurations inside an hour, without being the cluster's GitOps controller.\nOn a cluster where every object is applied from git, a hand-made change to the authorisation layer is drift at best. A burst of them is someone granting access or installing a webhook, and an admission webhook sees and can rewrite every object it matches, which makes it a durable foothold.\nThis detection assumes the deploying ruleset already excludes the legitimate writers - the GitOps controller, the garbage collector, the aggregation controller - so that reaching this rule already means \"not the usual writer\". Grouped on user.name so three changes by three controllers do not add up.\nRequires a Kubernetes API audit decoder emitting the `kube_audit` rule group, with unexpected RBAC and webhook writes classified as `kube_drift` - see Portability in the pull request. Without those groups this artifact imports cleanly and never fires.\nVolume on the reference deployment (a 6-node k3s cluster, ~16,000 audit events/day): 175 RBAC writes in 24h, of which exactly 1 was outside the GitOps allowlist. At a threshold of 3 it is meant to be silent.",
+    "tags": [
+      "kubernetes",
+      "k3s",
+      "api-audit",
+      "rbac",
+      "admission-control",
+      "persistence"
+    ],
+    "attack_techniques": [
+      "T1098",
+      "T1546"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/kubernetes-changes-outside-gitops-46372757.yml"
+  },
+  {
     "uuid": "6bc7b4d0-b754-4152-ba24-af5d84ce8a76",
     "revision": 1,
     "kind": "search_rule",
