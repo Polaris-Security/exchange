@@ -1,0 +1,294 @@
+schema_version: 1
+uuid: dab9f67c-44ed-4b8f-a57b-f46d8660bb44
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Mass deletion through ArgoCD by one identity
+description: >-
+  One person deleted three or more Applications or live resources through the ArgoCD API inside thirty
+  minutes.
+
+  ArgoCD usually holds cluster-admin, so its API is the quickest way to take a whole estate down with
+  one stolen SSO session - and in a GitOps setup a human deleting through it at all is out of the ordinary.
+  Deletions the controller performs itself when git drops a resource (prune) carry no user and are deliberately
+  outside this rule.
+
+  Requires an argocd-server decoder that extracts the caller's username into the user field (it is inside
+  the grpc.request.claims string, so this is usually done before Wazuh, in the log shipper) and a rule
+  on "received unary call /application.ApplicationService/Delete" and "/DeleteResource" emitting the `argocd_manual_operation`
+  and `argocd_delete` groups. Without them the artifact imports cleanly and never fires.
+
+  Grouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document,
+  whatever the correlation key says. The second leg repeats the first leg's conditions with a count of
+  1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per
+  person. The split-volume test below proves it.
+
+  Volume on the reference deployment (30 days): zero manual deletions. It is meant to be silent.
+tags:
+- argocd
+- gitops
+- kubernetes
+- impact
+- deletion
+attack_techniques:
+- T1485
+spec:
+  severity: high
+  correlation_key: user.name
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 3
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: argocd_delete
+    - field_name: rule.groups
+      operator: contains
+      value: argocd_manual_operation
+  - count: 1
+    count_operator: gte
+    display_order: 1
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: argocd_delete
+    - field_name: rule.groups
+      operator: contains
+      value: argocd_manual_operation
+  tests:
+  - name: fires on three deletions by one person
+    description: alice deletes three applications within minutes.
+    expect_fire: true
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: alice
+        grpc:
+          request:
+            content:
+              name: app-a
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: alice
+        grpc:
+          request:
+            content:
+              name: app-b
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: alice
+        grpc:
+          request:
+            content:
+              name: app-c
+  - name: does not fire when deletions are spread over two people
+    description: Two deletions each by alice and bob.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: alice
+        grpc:
+          request:
+            content:
+              name: app-alice-0
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: alice
+        grpc:
+          request:
+            content:
+              name: app-alice-1
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: bob
+        grpc:
+          request:
+            content:
+              name: app-bob-0
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_manual_operation
+        - argocd_delete
+      data:
+        level: info
+        msg: received unary call /application.ApplicationService/Delete
+        dstuser: bob
+        grpc:
+          request:
+            content:
+              name: app-bob-1
+  - name: does not fire on git-driven prunes
+    description: The controller pruning resources after a commit carries no user and no manual-operation
+      group.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_delete
+      data:
+        level: info
+        msg: 'Adding resource result, status: ''Pruned'', phase: ''Running'', message: ''pruned'''
+        application: app-a
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_delete
+      data:
+        level: info
+        msg: 'Adding resource result, status: ''Pruned'', phase: ''Running'', message: ''pruned'''
+        application: app-a
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_delete
+      data:
+        level: info
+        msg: 'Adding resource result, status: ''Pruned'', phase: ''Running'', message: ''pruned'''
+        application: app-a
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_delete
+      data:
+        level: info
+        msg: 'Adding resource result, status: ''Pruned'', phase: ''Running'', message: ''pruned'''
+        application: app-a
+    - '@timestamp': now-5m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: argocd
+      rule:
+        groups:
+        - argocd
+        - argocd_delete
+      data:
+        level: info
+        msg: 'Adding resource result, status: ''Pruned'', phase: ''Running'', message: ''pruned'''
+        application: app-a
+required_fields:
+- data.dstuser
+- rule.groups
