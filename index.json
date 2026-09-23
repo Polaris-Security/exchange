@@ -18,6 +18,31 @@
     "path": "playbooks/brute-force-response-17285a83.yml"
   },
   {
+    "uuid": "b9cd3f70-0671-4c2c-9096-f666f2724b3f",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "ArgoCD authentication failures from one source",
+    "description": "Five or more requests to ArgoCD rejected for want of a valid login, from one source address, inside thirty minutes: failed password logins (POST /api/v1/session answered 401) and API calls made with no session at all.\nThe legs read the reverse proxy's access log, not ArgoCD's own. argocd-server never sees the client: its REST gateway calls its own gRPC server over loopback, so every call it logs comes from 127.0.0.1, and it does not read X-Forwarded-For. The proxy in front of it is the only place the address exists.\nRequires the proxy's access-log rules to put three rule groups on a 401 for the ArgoCD host: `accesslog`, `authentication_failed` and `argocd`. Leave `argocd` off the web UI's own /api/v1/stream/* 401s - a browser holding an expired session produces a steady trickle of them. Without these groups the artifact imports cleanly and never fires.\nBlind spot: the argocd CLI over native gRPC is refused with HTTP 200 and the failure in grpc-status, so a CLI-driven guess never shows as a 401 at the proxy.\nGrouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document, whatever the correlation key says. The second leg repeats the first leg's conditions with a count of 1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per source address. The split-volume test below proves it.\nVolume on the reference deployment (one ArgoCD instance behind a BunkerWeb proxy, 30 days): 6 such events, all deliberate tests, at most 3 in any 30 minutes. Internet scanners never reached ArgoCD's login - the proxy refused them with 403 first. It is meant to be silent.",
+    "tags": [
+      "argocd",
+      "gitops",
+      "kubernetes",
+      "brute-force",
+      "authentication",
+      "reverse-proxy"
+    ],
+    "attack_techniques": [
+      "T1110.001"
+    ],
+    "required_fields": [
+      "data.srcip",
+      "rule.groups"
+    ],
+    "path": "rules/argocd-auth-failures-one-source-b9cd3f70.yml"
+  },
+  {
     "uuid": "3fc50eb3-9464-4d0b-8661-e7ee65f716f0",
     "revision": 1,
     "kind": "search_rule",
@@ -193,6 +218,31 @@
       "rule.groups"
     ],
     "path": "rules/authentik-successful-sign-in-after-repeated-failures-from-one-source-d99d8f5b.yml"
+  },
+  {
+    "uuid": "d11ec72c-d5dc-4d04-be4b-c4222893c3a5",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Burst of out-of-git changes through ArgoCD by one identity",
+    "description": "One person changed what ArgoCD deploys, or how ArgoCD itself is configured, through its API three or more times in an hour: Application create/update/patch, live-resource patches and resource actions, and any write to projects, clusters, repositories, repository credentials, certificates, GPG keys, accounts (including API tokens), ApplicationSets or notifications.\nWith GitOps the normal path to change any of these is a commit. Each such call is unusual on its own; a run of them from one person is someone reshaping the deployment controller by hand - adding a cluster or a repository it will trust, minting a token, or pointing an application somewhere new. Manual syncs are excluded: they deploy what git already says.\nRequires an argocd-server decoder that extracts the caller's username into the user field and rules emitting `argocd` and `config_changed` on those API calls. Without them the artifact imports cleanly and never fires.\nGrouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document, whatever the correlation key says. The second leg repeats the first leg's conditions with a count of 1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per person. The split-volume test below proves it.\nVolume on the reference deployment (30 days): zero. It is meant to be silent.",
+    "tags": [
+      "argocd",
+      "gitops",
+      "kubernetes",
+      "persistence",
+      "configuration-change"
+    ],
+    "attack_techniques": [
+      "T1098",
+      "T1578"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/argocd-out-of-git-change-burst-d11ec72c.yml"
   },
   {
     "uuid": "35cc0328-b7e5-48c2-ac71-79fbac2335b6",
@@ -388,6 +438,30 @@
       "rule.groups"
     ],
     "path": "rules/mailbox-login-from-previously-unseen-source-9d992288.yml"
+  },
+  {
+    "uuid": "dab9f67c-44ed-4b8f-a57b-f46d8660bb44",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Mass deletion through ArgoCD by one identity",
+    "description": "One person deleted three or more Applications or live resources through the ArgoCD API inside thirty minutes.\nArgoCD usually holds cluster-admin, so its API is the quickest way to take a whole estate down with one stolen SSO session - and in a GitOps setup a human deleting through it at all is out of the ordinary. Deletions the controller performs itself when git drops a resource (prune) carry no user and are deliberately outside this rule.\nRequires an argocd-server decoder that extracts the caller's username into the user field (it is inside the grpc.request.claims string, so this is usually done before Wazuh, in the log shipper) and a rule on \"received unary call /application.ApplicationService/Delete\" and \"/DeleteResource\" emitting the `argocd_manual_operation` and `argocd_delete` groups. Without them the artifact imports cleanly and never fires.\nGrouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document, whatever the correlation key says. The second leg repeats the first leg's conditions with a count of 1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per person. The split-volume test below proves it.\nVolume on the reference deployment (30 days): zero manual deletions. It is meant to be silent.",
+    "tags": [
+      "argocd",
+      "gitops",
+      "kubernetes",
+      "impact",
+      "deletion"
+    ],
+    "attack_techniques": [
+      "T1485"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/argocd-mass-deletion-one-identity-dab9f67c.yml"
   },
   {
     "uuid": "4e23bce5-bc10-4b14-ada5-1e071eef32e5",
