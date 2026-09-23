@@ -1,0 +1,459 @@
+schema_version: 1
+uuid: b9cd3f70-0671-4c2c-9096-f666f2724b3f
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: ArgoCD authentication failures from one source
+description: >-
+  Five or more requests to ArgoCD rejected for want of a valid login, from one source address, inside
+  thirty minutes: failed password logins (POST /api/v1/session answered 401) and API calls made with no
+  session at all.
+
+  The legs read the reverse proxy's access log, not ArgoCD's own. argocd-server never sees the client:
+  its REST gateway calls its own gRPC server over loopback, so every call it logs comes from 127.0.0.1,
+  and it does not read X-Forwarded-For. The proxy in front of it is the only place the address exists.
+
+  Requires the proxy's access-log rules to put three rule groups on a 401 for the ArgoCD host: `accesslog`,
+  `authentication_failed` and `argocd`. Leave `argocd` off the web UI's own /api/v1/stream/* 401s - a
+  browser holding an expired session produces a steady trickle of them. Without these groups the artifact
+  imports cleanly and never fires.
+
+  Blind spot: the argocd CLI over native gRPC is refused with HTTP 200 and the failure in grpc-status,
+  so a CLI-driven guess never shows as a 401 at the proxy.
+
+  Grouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document,
+  whatever the correlation key says. The second leg repeats the first leg's conditions with a count of
+  1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per
+  source address. The split-volume test below proves it.
+
+  Volume on the reference deployment (one ArgoCD instance behind a BunkerWeb proxy, 30 days): 6 such events,
+  all deliberate tests, at most 3 in any 30 minutes. Internet scanners never reached ArgoCD's login -
+  the proxy refused them with 403 first. It is meant to be silent.
+tags:
+- argocd
+- gitops
+- kubernetes
+- brute-force
+- authentication
+- reverse-proxy
+attack_techniques:
+- T1110.001
+spec:
+  severity: high
+  correlation_key: source.ip
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 20
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 5
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: authentication_failed
+    - field_name: rule.groups
+      operator: contains
+      value: argocd
+    - field_name: rule.groups
+      operator: contains
+      value: accesslog
+  - count: 1
+    count_operator: gte
+    display_order: 1
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: authentication_failed
+    - field_name: rule.groups
+      operator: contains
+      value: argocd
+    - field_name: rule.groups
+      operator: contains
+      value: accesslog
+  tests:
+  - name: fires on five rejected logins and API calls from one source
+    description: Three failed password logins and two session-less API calls from 203.0.113.10 inside
+      the window.
+    expect_fire: true
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/applications
+        status: '401'
+    - '@timestamp': now-5m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/applications
+        status: '401'
+  - name: does not fire when the failures are spread over two sources
+    description: Eight failures in total, four from each address. Proves the rule counts per source rather
+      than overall.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 198.51.100.20
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 198.51.100.20
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 198.51.100.20
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+        - argocd
+      data:
+        vhost: argocd.example.com
+        srcip: 198.51.100.20
+        http_method: POST
+        url: /api/v1/session
+        status: '401'
+  - name: does not fire on the UI's expired-session stream errors
+    description: 401s on /api/v1/stream/* from a browser holding an expired session carry no argocd group.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+    - '@timestamp': now-5m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+    - '@timestamp': now-6m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: bunkerweb-accesslog
+      rule:
+        groups:
+        - bunkerweb
+        - accesslog
+        - web
+        - authentication_failed
+      data:
+        vhost: argocd.example.com
+        srcip: 203.0.113.10
+        http_method: GET
+        url: /api/v1/stream/applications
+        status: '401'
+required_fields:
+- data.srcip
+- rule.groups
