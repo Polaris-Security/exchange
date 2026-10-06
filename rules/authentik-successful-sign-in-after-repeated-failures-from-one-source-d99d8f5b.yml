@@ -1,35 +1,43 @@
 schema_version: 1
 uuid: d99d8f5b-101c-4fbb-a886-1b2abd05024d
-revision: 1
+revision: 2
 kind: search_rule
 status: active
 status_reason: ''
 name: Authentik successful sign-in after repeated failures from one source
-description: 'A run of failed sign-ins from one address followed by a success from that same address -
-  the shape of credential guessing that worked, and the highest-value single detection an identity provider
-  can offer.
+description: >-
+  A run of failed sign-ins from one address followed by a success from that same address - the shape of credential
+  guessing that worked, and the highest-value single detection an identity provider can offer.
 
 
   The `data.event: "Created Event"` condition is load-bearing, not decoration. authentik emits three separate
   records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation
-  `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone
-  therefore triples every threshold, and two of the three carry no client address at all. `Created Event`
-  selects only the audit record: one per attempt, always addressed.
+  `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore
+  triples every threshold, and two of the three carry no client address at all. `Created Event` selects only
+  the audit record: one per attempt, always addressed.
 
 
-  Correlates on address rather than username deliberately. authentik records the *submitted* identifier
-  on a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree
-  about who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.
+  The `rule.mitre.id: T1110` condition keeps rejected tokens out. `authentication_failed` is also the natural
+  group for authentik's `suspicious_request` (a revoked or invalid token presented, T1550.001), and an OAuth
+  client refreshing tokens concurrently produces those in bursts of a dozen or more from one address. That
+  is token replay or a client bug, not credential guessing. Both sign-in failure actions (`login_failed`, `invalid_identifier`)
+  map to T1110 and a token rejection does not, so the technique selects exactly the attempts this rule is about.
+  Added in revision 2, together with the T1110 requirement below.
+
+
+  Correlates on address rather than username deliberately. authentik records the *submitted* identifier on
+  a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree about
+  who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.
 
 
   Volume: never observed on the reference deployment. Expect occasional benign hits from a user who mistypes
   a password several times and then succeeds - tune leg 0 upward if that is common in your estate.
 
 
-  Requires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client
-  address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it
-  must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability
-  in the pull request.'
+  Requires a decoder named `authentik` whose failed sign-in rules carry the `authentication_failed` group and
+  MITRE technique T1110, and the client address in `data.srcip`. authentik logs the address as `client_ip`,
+  which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this
+  to match. See Portability in the pull request.
 tags:
 - authentik
 - identity-provider
@@ -57,17 +65,18 @@ spec:
     min_distinct: 1
     novelty_field: ''
     conditions:
-    - &id001
-      field_name: decoder.name
+    - field_name: decoder.name
       operator: equals
       value: authentik
     - field_name: rule.groups
       operator: contains
       value: authentication_failed
-    - &id002
-      field_name: data.event
+    - field_name: data.event
       operator: equals
       value: Created Event
+    - field_name: rule.mitre.id
+      operator: contains
+      value: T1110
   - count: 1
     count_operator: gte
     display_order: 1
@@ -75,78 +84,501 @@ spec:
     min_distinct: 1
     novelty_field: ''
     conditions:
-    - *id001
+    - field_name: decoder.name
+      operator: equals
+      value: authentik
     - field_name: rule.groups
       operator: contains
       value: authentication_success
-    - *id002
+    - field_name: data.event
+      operator: equals
+      value: Created Event
     - field_name: data.action
       operator: equals
       value: login
   tests:
   - name: fires when failures are followed by a success
-    description: Five failures then a successful sign-in from the same address.
+    description: Five audit-path failures from one address, then a successful login from it. The failures record
+      the submitted identifier (sometimes an email) and the success the canonical username, which is why the
+      key is the address.
     expect_fire: true
     samples:
-    - rule:
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
         groups:
         - authentik
         - authentication_failed
-      decoder:
-        name: authentik
+        mitre:
+          id:
+          - T1110
       data:
         event: Created Event
         srcip: 198.51.100.24
         dstuser: alice
         action: login_failed
+    - '@timestamp': now-3m
       agent:
-        name: example-host-01
-    - rule:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
         groups:
         - authentik
         - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice@example.com
+        action: login_failed
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
       decoder:
         name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
       data:
         event: Created Event
         srcip: 198.51.100.24
         dstuser: alice
         action: login_failed
+    - '@timestamp': now-5m
       agent:
-        name: example-host-01
-    - rule:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice@example.com
+        action: login_failed
+    - '@timestamp': now-6m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
         groups:
         - authentik
         - authentication_success
-      decoder:
-        name: authentik
       data:
         event: Created Event
         srcip: 198.51.100.24
         dstuser: alice
         action: login
-      agent:
-        name: example-host-01
   - name: does not fire on failures alone
-    description: Without the second leg this is rule-1 brute force.
+    description: 'Five failures from one address and no success: the first leg is met, the second is not.'
     expect_fire: false
     samples:
-    - rule:
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
         groups:
         - authentik
         - authentication_failed
-      decoder:
-        name: authentik
+        mitre:
+          id:
+          - T1110
       data:
         event: Created Event
         srcip: 198.51.100.24
         dstuser: alice
         action: login_failed
+    - '@timestamp': now-3m
       agent:
-        name: example-host-01
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+    - '@timestamp': now-5m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+    - '@timestamp': now-6m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1110
+      data:
+        event: Created Event
+        srcip: 198.51.100.24
+        dstuser: alice
+        action: login_failed
+  - name: does not fire on rejected tokens followed by a success
+    description: Fourteen suspicious_request audit events (revoked refresh token, T1550.001) and then a successful
+      login from the same address - a user whose client refreshes badly, signing in again. The tokens carry
+      authentication_failed but not T1110.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-1m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-2m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-3m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-4m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-5m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-6m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-7m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-8m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-9m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-10m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-11m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-12m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-13m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-14m
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_failed
+        mitre:
+          id:
+          - T1550.001
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: suspicious_request
+    - '@timestamp': now-30s
+      agent:
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: authentik
+      rule:
+        groups:
+        - authentik
+        - authentication_success
+      data:
+        event: Created Event
+        srcip: 192.0.2.10
+        dstuser: alice
+        action: login
 required_fields:
 - data.action
 - data.event
 - data.srcip
 - decoder.name
 - rule.groups
+- rule.mitre.id
