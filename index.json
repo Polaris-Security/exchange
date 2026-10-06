@@ -68,12 +68,12 @@
   },
   {
     "uuid": "cf59bca1-9033-401a-8278-3b5795fb110a",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Authentik brute force from a single source",
-    "description": "Repeated failed sign-ins to an authentik identity provider from one address inside a short window. Covers both halves of credential guessing: `login_failed` (known user, wrong secret) and `invalid_identifier` (username does not resolve at all), which authentik reports as distinct actions.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nVolume: the reference deployment saw 6 failed sign-ins in 30 days across ~40 accounts, so 10 in 15 minutes is roughly two orders of magnitude above baseline and has never fired unprompted. An internet-facing IdP will need a higher count.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "description": "Repeated failed sign-ins to an authentik identity provider from one address inside a short window. Covers both halves of credential guessing: `login_failed` (known user, wrong secret) and `invalid_identifier` (username does not resolve at all), which authentik reports as distinct actions.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nThe `rule.mitre.id: T1110` condition keeps rejected tokens out. `authentication_failed` is also the natural group for authentik's `suspicious_request` (a revoked or invalid token presented, T1550.001), and an OAuth client refreshing tokens concurrently produces those in bursts: revision 1 fired on 14 of them from one in-cluster address within two seconds, all one user, all the same revoked refresh token. That is token replay or a client bug, not credential guessing, and belongs in its own detection. Both sign-in failure actions map to T1110 and a token rejection does not, so the technique selects exactly the two actions this rule describes.\n\nGrouping: Polaris evaluates a single-leg rule ungrouped - one fire unit for every matching document, whatever the correlation key says - so revision 1 actually counted failures from all addresses together. The second leg repeats the first leg's conditions with a count of 1, which forces the per-key path: both legs must be met by the same key, so the threshold applies per source address. The split-volume test below proves it.\n\nVolume: the reference deployment (one authentik instance, ~40 accounts) saw 9 failed sign-ins in 120 days and none in the last 30, so 10 in 15 minutes from one address is far above baseline. An internet-facing IdP will need a higher count.\n\nRequires a decoder named `authentik` whose failed sign-in rules carry the `authentication_failed` group and MITRE technique T1110, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
     "tags": [
       "authentik",
       "identity-provider",
@@ -87,7 +87,8 @@
       "data.event",
       "data.srcip",
       "decoder.name",
-      "rule.groups"
+      "rule.groups",
+      "rule.mitre.id"
     ],
     "path": "rules/authentik-brute-force-from-a-single-source-cf59bca1.yml"
   },
@@ -144,12 +145,12 @@
   },
   {
     "uuid": "e2ec4337-52d4-4ba1-ac81-a4cfecf8fef7",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Authentik password spraying from a single source",
-    "description": "One address attempting sign-in against many different accounts - the low-and-slow inverse of brute force, where each account sees too few failures to trip a per-account threshold.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nThe diversity constraint is what separates this from rule-1 brute force: ten failures against one account is guessing, ten against five accounts is enumeration.\n\nVolume: never observed on the reference deployment in 30 days.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "description": "One address attempting sign-in against many different accounts - the low-and-slow inverse of brute force, where each account sees too few failures to trip a per-account threshold.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nThe `rule.mitre.id: T1110` condition keeps rejected tokens out. `authentication_failed` is also the natural group for authentik's `suspicious_request` (a revoked or invalid token presented, T1550.001), and an OAuth client refreshing tokens concurrently produces those in bursts of a dozen or more from one address. That is token replay or a client bug, not credential guessing. Both sign-in failure actions (`login_failed`, `invalid_identifier`) map to T1110 and a token rejection does not, so the technique selects exactly the attempts this rule is about. Added in revision 2, together with the T1110 requirement below.\n\nThe diversity constraint is what separates this from rule-1 brute force: ten failures against one account is guessing, ten against five accounts is enumeration.\n\nVolume: never observed on the reference deployment in 30 days.\n\nRequires a decoder named `authentik` whose failed sign-in rules carry the `authentication_failed` group and MITRE technique T1110, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
     "tags": [
       "authentik",
       "identity-provider",
@@ -164,7 +165,8 @@
       "data.event",
       "data.srcip",
       "decoder.name",
-      "rule.groups"
+      "rule.groups",
+      "rule.mitre.id"
     ],
     "path": "rules/authentik-password-spraying-from-a-single-source-e2ec4337.yml"
   },
@@ -195,12 +197,12 @@
   },
   {
     "uuid": "d99d8f5b-101c-4fbb-a886-1b2abd05024d",
-    "revision": 1,
+    "revision": 2,
     "kind": "search_rule",
     "status": "active",
     "status_reason": "",
     "name": "Authentik successful sign-in after repeated failures from one source",
-    "description": "A run of failed sign-ins from one address followed by a success from that same address - the shape of credential guessing that worked, and the highest-value single detection an identity provider can offer.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nCorrelates on address rather than username deliberately. authentik records the *submitted* identifier on a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree about who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.\n\nVolume: never observed on the reference deployment. Expect occasional benign hits from a user who mistypes a password several times and then succeeds - tune leg 0 upward if that is common in your estate.\n\nRequires a decoder named `authentik` emitting the `authentication_failed` rule group, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
+    "description": "A run of failed sign-ins from one address followed by a success from that same address - the shape of credential guessing that worked, and the highest-value single detection an identity provider can offer.\n\nThe `data.event: \"Created Event\"` condition is load-bearing, not decoration. authentik emits three separate records for one failed sign-in - the audit event, a policy-stage `Invalid credentials` line, and a reputation `Updated score` line - and all three carry the `authentication_failed` group. Counting the group alone therefore triples every threshold, and two of the three carry no client address at all. `Created Event` selects only the audit record: one per attempt, always addressed.\n\nThe `rule.mitre.id: T1110` condition keeps rejected tokens out. `authentication_failed` is also the natural group for authentik's `suspicious_request` (a revoked or invalid token presented, T1550.001), and an OAuth client refreshing tokens concurrently produces those in bursts of a dozen or more from one address. That is token replay or a client bug, not credential guessing. Both sign-in failure actions (`login_failed`, `invalid_identifier`) map to T1110 and a token rejection does not, so the technique selects exactly the attempts this rule is about. Added in revision 2, together with the T1110 requirement below.\n\nCorrelates on address rather than username deliberately. authentik records the *submitted* identifier on a failure (often an email) and the *canonical* username on success, so the two legs frequently disagree about who the user is; keying on `user.name` would silently never join. Verified on live data 2026-08-19.\n\nVolume: never observed on the reference deployment. Expect occasional benign hits from a user who mistypes a password several times and then succeeds - tune leg 0 upward if that is common in your estate.\n\nRequires a decoder named `authentik` whose failed sign-in rules carry the `authentication_failed` group and MITRE technique T1110, and the client address in `data.srcip`. authentik logs the address as `client_ip`, which is a dynamic field, so it must be mapped into the `srcip` static field at the shipping layer for this to match. See Portability in the pull request.",
     "tags": [
       "authentik",
       "identity-provider",
@@ -215,7 +217,8 @@
       "data.event",
       "data.srcip",
       "decoder.name",
-      "rule.groups"
+      "rule.groups",
+      "rule.mitre.id"
     ],
     "path": "rules/authentik-successful-sign-in-after-repeated-failures-from-one-source-d99d8f5b.yml"
   },
