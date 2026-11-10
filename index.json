@@ -560,6 +560,81 @@
     "path": "rules/ssh-brute-force-7a0bd02b.yml"
   },
   {
+    "uuid": "c52dd314-d713-4bf1-832c-fa13fb1cca56",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Teleport account change and role change by the same operator",
+    "description": "One identity both creates, updates or resets a Teleport account (or bot) and creates, changes or deletes a role within an hour. Separately each is routine administration; together it is the persistence move - a new account, or a reset link for an existing one, plus a role that grants it what the operator wants. The key is the actor (`data.dstuser` is the identity that made the change; the target is `data.name`).\n\nTeleport creates and migrates its preset roles as the user `system`, which never changes accounts, so upgrades cannot pair. Changes made with tctl inside the auth server are attributed to the built-in `<host_uuid>.<cluster>` identity and do pair, which is intended.\n\nVolume: two in a year on the reference deployment, both legitimate (cluster bootstrap with tctl, and Teleport Connect's Connect My Computer creating its role). Expect a few a year.\n\nRequires a Teleport audit stream in Wazuh: Teleport's `audit_events_uri` with a `stdout://` entry, the container log shipped as raw JSON, and rules that tag every Teleport event with the `teleport` group plus the shape group named in the legs. The reference decoder and rules (Wazuh 4.14) are linked in the pull request. Teleport's top-level `user` key lands in `data.dstuser` through JSON_Decoder's static-field routing, so no shipping-layer mapping is needed for the key. Without those groups this artifact imports cleanly and never fires.",
+    "tags": [
+      "teleport",
+      "access-proxy",
+      "rbac",
+      "persistence",
+      "account-management"
+    ],
+    "attack_techniques": [
+      "T1098",
+      "T1136"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/teleport-account-change-and-role-change-by-the-same-operator-c52dd314.yml"
+  },
+  {
+    "uuid": "1d9848a4-3aaf-456a-b743-adc4db15859b",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Teleport sign-in after repeated failed logins for the same user",
+    "description": "Three or more failed Teleport logins and a successful login for the same username within an hour - a guessed or stuffed password that eventually worked. Legs are co-occurrence, not sequence.\n\nKeyed on the username rather than the address on purpose. Teleport records the submitted name on a failure and the same, case-sensitive name on success, so the legs agree about who the user is. `addr.remote` on web logins is usually the reverse proxy in front of the Teleport proxy, not the client, so a source-address key would merge everyone. Teleport's own lockout (five failures by default) means a real guess campaign shows at most four failures per lock period before the success, which is why the threshold sits at three.\n\nVolume: zero matches in a year of audit history (13,000 events, one human user) at three failures; one at two.\n\nRequires a Teleport audit stream in Wazuh: Teleport's `audit_events_uri` with a `stdout://` entry, the container log shipped as raw JSON, and rules that tag every Teleport event with the `teleport` group plus the shape group named in the legs. The reference decoder and rules (Wazuh 4.14) are linked in the pull request. Teleport's top-level `user` key lands in `data.dstuser` through JSON_Decoder's static-field routing, so no shipping-layer mapping is needed for the key. Without those groups this artifact imports cleanly and never fires.",
+    "tags": [
+      "teleport",
+      "access-proxy",
+      "brute-force",
+      "authentication"
+    ],
+    "attack_techniques": [
+      "T1110",
+      "T1078"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "rule.groups"
+    ],
+    "path": "rules/teleport-sign-in-after-repeated-failed-logins-for-the-same-user-1d9848a4.yml"
+  },
+  {
+    "uuid": "cd5e6060-9341-4a98-a42e-e18c2b392ffd",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Teleport SSH login probing by one identity",
+    "description": "Four or more different host logins refused for one Teleport identity within thirty minutes. A node refuses a login when the requested principal is not granted by the user's roles (Teleport event `auth`, code T3007W), so this is a valid certificate being used to try root, admin, ubuntu and so on across nodes - a stolen session looking for a way up, or a person who does not know which login they were given.\n\nThe leg's diversity constraint on `data.login` is the detection; it also groups the leg per identity.\n\nVolume: in a year of audit history the maximum was three distinct logins in thirty minutes (the owner fixing their own login name), so four never fired.\n\nRequires a Teleport audit stream in Wazuh: Teleport's `audit_events_uri` with a `stdout://` entry, the container log shipped as raw JSON, and rules that tag every Teleport event with the `teleport` group plus the shape group named in the legs. The reference decoder and rules (Wazuh 4.14) are linked in the pull request. Teleport's top-level `user` key lands in `data.dstuser` through JSON_Decoder's static-field routing, so no shipping-layer mapping is needed for the key. Without those groups this artifact imports cleanly and never fires.",
+    "tags": [
+      "teleport",
+      "access-proxy",
+      "ssh",
+      "discovery",
+      "authentication"
+    ],
+    "attack_techniques": [
+      "T1021.004",
+      "T1078"
+    ],
+    "required_fields": [
+      "data.dstuser",
+      "data.login",
+      "rule.groups"
+    ],
+    "path": "rules/teleport-ssh-login-probing-by-one-identity-cd5e6060.yml"
+  },
+  {
     "uuid": "f2286404-5786-4ac0-977e-f356a94d3cbe",
     "revision": 2,
     "kind": "search_rule",
