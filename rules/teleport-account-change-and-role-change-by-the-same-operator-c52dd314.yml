@@ -1,0 +1,140 @@
+schema_version: 1
+uuid: c52dd314-d713-4bf1-832c-fa13fb1cca56
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Teleport account change and role change by the same operator
+description: 'One identity both creates, updates or resets a Teleport account (or bot) and creates, changes or deletes a role
+  within an hour. Separately each is routine administration; together it is the persistence move - a new account, or a reset
+  link for an existing one, plus a role that grants it what the operator wants. The key is the actor (`data.dstuser` is the
+  identity that made the change; the target is `data.name`).
+
+
+  Teleport creates and migrates its preset roles as the user `system`, which never changes accounts, so upgrades cannot pair.
+  Changes made with tctl inside the auth server are attributed to the built-in `<host_uuid>.<cluster>` identity and do pair,
+  which is intended.
+
+
+  Volume: two in a year on the reference deployment, both legitimate (cluster bootstrap with tctl, and Teleport Connect''s
+  Connect My Computer creating its role). Expect a few a year.
+
+
+  Requires a Teleport audit stream in Wazuh: Teleport''s `audit_events_uri` with a `stdout://` entry, the container log shipped
+  as raw JSON, and rules that tag every Teleport event with the `teleport` group plus the shape group named in the legs. The
+  reference decoder and rules (Wazuh 4.14) are linked in the pull request. Teleport''s top-level `user` key lands in `data.dstuser`
+  through JSON_Decoder''s static-field routing, so no shipping-layer mapping is needed for the key. Without those groups this
+  artifact imports cleanly and never fires.'
+tags:
+- teleport
+- access-proxy
+- rbac
+- persistence
+- account-management
+attack_techniques:
+- T1098
+- T1136
+spec:
+  severity: medium
+  correlation_key: user.name
+  window_minutes: 60
+  interval_minutes: 30
+  max_findings_per_run: 10
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 1
+    count_operator: gte
+    display_order: 0
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: teleport
+    - field_name: rule.groups
+      operator: contains
+      value: teleport_account_change
+  - count: 1
+    count_operator: gte
+    display_order: 1
+    distinct_field: ''
+    min_distinct: 1
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: teleport
+    - field_name: rule.groups
+      operator: contains
+      value: teleport_rbac_change
+  tests:
+  - name: fires on user creation plus role creation by one operator
+    description: alice creates an account and a role within the window.
+    expect_fire: true
+    samples:
+    - '@timestamp': now-30m
+      agent: &id001
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_account_change
+        - adduser
+      data:
+        dstuser: alice
+        name: example-user
+    - '@timestamp': now-25m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_rbac_change
+        - policy_changed
+      data:
+        dstuser: alice
+        name: example-role
+  - name: does not fire on a preset role migration next to someone else's account change
+    description: Teleport's own role migration runs as system.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-30m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_account_change
+        - adduser
+      data:
+        dstuser: alice
+        name: example-user
+    - '@timestamp': now-25m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_rbac_change
+      data:
+        dstuser: system
+        name: access
+required_fields:
+- data.dstuser
+- rule.groups

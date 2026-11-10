@@ -1,0 +1,233 @@
+schema_version: 1
+uuid: cd5e6060-9341-4a98-a42e-e18c2b392ffd
+revision: 1
+kind: search_rule
+status: active
+status_reason: ''
+name: Teleport SSH login probing by one identity
+description: 'Four or more different host logins refused for one Teleport identity within thirty minutes. A node refuses a
+  login when the requested principal is not granted by the user''s roles (Teleport event `auth`, code T3007W), so this is
+  a valid certificate being used to try root, admin, ubuntu and so on across nodes - a stolen session looking for a way up,
+  or a person who does not know which login they were given.
+
+
+  The leg''s diversity constraint on `data.login` is the detection; it also groups the leg per identity.
+
+
+  Volume: in a year of audit history the maximum was three distinct logins in thirty minutes (the owner fixing their own login
+  name), so four never fired.
+
+
+  Requires a Teleport audit stream in Wazuh: Teleport''s `audit_events_uri` with a `stdout://` entry, the container log shipped
+  as raw JSON, and rules that tag every Teleport event with the `teleport` group plus the shape group named in the legs. The
+  reference decoder and rules (Wazuh 4.14) are linked in the pull request. Teleport''s top-level `user` key lands in `data.dstuser`
+  through JSON_Decoder''s static-field routing, so no shipping-layer mapping is needed for the key. Without those groups this
+  artifact imports cleanly and never fires.'
+tags:
+- teleport
+- access-proxy
+- ssh
+- discovery
+- authentication
+attack_techniques:
+- T1021.004
+- T1078
+spec:
+  severity: medium
+  correlation_key: user.name
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 10
+  include_agentless: true
+  baseline_lookback_days: 30
+  time_window_mode: inside
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  legs:
+  - count: 4
+    count_operator: gte
+    display_order: 0
+    distinct_field: data.login
+    min_distinct: 4
+    novelty_field: ''
+    conditions:
+    - field_name: rule.groups
+      operator: contains
+      value: teleport
+    - field_name: rule.groups
+      operator: contains
+      value: teleport_ssh_denied
+  tests:
+  - name: fires on four distinct refused logins
+    description: root, admin, ubuntu and deploy refused for one identity.
+    expect_fire: true
+    samples:
+    - '@timestamp': now-20m
+      agent: &id001
+        id: '000'
+        name: example-manager-01
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+    - '@timestamp': now-18m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: admin
+        server_hostname: example-host-01
+    - '@timestamp': now-15m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: ubuntu
+        server_hostname: example-host-01
+    - '@timestamp': now-12m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: deploy
+        server_hostname: example-host-01
+  - name: does not fire on one login refused four times
+    description: Retrying the same wrong login is a mistake, not probing.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-20m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+    - '@timestamp': now-18m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+    - '@timestamp': now-15m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+    - '@timestamp': now-12m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+  - name: does not fire on three distinct logins
+    description: The reference deployment's own maximum.
+    expect_fire: false
+    samples:
+    - '@timestamp': now-20m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: root
+        server_hostname: example-host-01
+    - '@timestamp': now-18m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: admin
+        server_hostname: example-host-01
+    - '@timestamp': now-15m
+      agent: *id001
+      decoder:
+        name: teleport
+      rule:
+        groups:
+        - teleport
+        - teleport_audit
+        - teleport_ssh_denied
+        - authentication_failed
+      data:
+        dstuser: alice
+        login: ubuntu
+        server_hostname: example-host-01
+required_fields:
+- data.dstuser
+- data.login
+- rule.groups
