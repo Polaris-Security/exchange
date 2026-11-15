@@ -1,0 +1,156 @@
+schema_version: 1
+uuid: ec86ee1c-5594-41a2-95bf-088330aa5059
+revision: 1
+kind: search_rule
+status: active
+status_reason: ""
+
+name: Falco multi-stage runtime chain on one node
+description: >-
+  Two or more different Falco detections of high severity on the same node inside
+  thirty minutes. A single Falco detection is already an alert in its own right; this
+  rule raises one incident when they chain: code execution under a server process,
+  then a binary that is not in the image, fileless execution, a call to the Kubernetes
+  API, or a container-escape primitive. One exploited workload rarely trips only one
+  of these.
+
+  Diversity is counted on `data.rule`, the Falco rule name as Falco emits it, so a
+  single detection repeating a hundred times (a noisy shell rule, a housekeeping loop)
+  never satisfies the rule on its own. It needs two distinct kinds of behaviour.
+
+  The key is the NODE (`host.name`, which resolves to `agent.name`), not the
+  container. That works only when Falco events reach Wazuh through each node's own
+  agent (a `<localfile>` with `log_format json` on Falco's JSON output file), not
+  through a central log shipper, which would put every event on one agent name and
+  turn this into "two detections anywhere". Polaris has no container correlation key,
+  so two unrelated containers on one node can combine. With tuned Falco that is rare,
+  and it is still worth a look.
+
+  Requires the Falco JSON events to be decoded by Wazuh's JSON decoder (so the Falco
+  rule name lands in `data.rule`), every Falco rule to carry the `falco` rule group,
+  and Falco priorities mapped onto Wazuh levels so that Warning and below sit under 8
+  while Error and above, plus the exploitation-specific rules, sit at 8 or higher.
+  The reference mapping is Notice 5, Warning 7, Error 9, Critical 12, Emergency or
+  Alert 14, with the K8s API contact rule raised to 8 and the exploitation rules to
+  10-14. See Portability in the pull request. Without the `falco` group this artifact
+  imports cleanly and never fires.
+
+  Volume: on the reference deployment (one k3s node running about forty workloads,
+  around 250 process starts per second), zero hits after Falco was tuned. Before
+  tuning, the first pilot hour would have produced exactly one finding, from two
+  false-positive sources that have since been given scoped Falco exceptions. That is
+  the failure mode to expect: a new false positive plus any other one. Fix it with a
+  Falco exception, not by raising this threshold.
+
+tags:
+  - falco
+  - runtime-security
+  - containers
+  - kubernetes
+  - exploitation
+  - post-exploitation
+attack_techniques:
+  - T1190
+  - T1059
+  - T1105
+  - T1611
+  - T1613
+
+spec:
+  severity: critical
+  correlation_key: host.name
+  window_minutes: 30
+  interval_minutes: 15
+  max_findings_per_run: 10
+  include_agentless: false
+  baseline_lookback_days: 30
+  time_window_start: null
+  time_window_end: null
+  time_window_days: []
+  time_window_mode: inside
+
+  legs:
+    - count: 2
+      count_operator: gte
+      display_order: 0
+      distinct_field: data.rule
+      min_distinct: 2
+      novelty_field: ''
+      conditions:
+        - field_name: rule.groups
+          operator: contains
+          value: falco
+        - field_name: rule.level
+          operator: gte
+          value: '8'
+
+  tests:
+    - name: fires on a server process starting a command, then a dropped binary
+      description: >-
+        One node, two different Falco detections inside the window: an application
+        server spawning a process, then a binary that is not part of the image.
+      expect_fire: true
+      samples:
+        - rule: {groups: ["falco", "falco_exploitation"], level: 14}
+          decoder: {name: json}
+          data: {rule: Process started by application server, source: syscall, priority: Critical, output_fields: {container.name: web-frontend, proc.name: id, proc.pname: php-fpm}}
+          agent: {name: example-node-01}
+        - rule: {groups: ["falco", "falco_exploitation"], level: 12}
+          decoder: {name: json}
+          data: {rule: Drop and execute new binary in container, source: syscall, priority: Critical, output_fields: {container.name: web-frontend, proc.name: x, proc.exepath: /tmp/x}}
+          agent: {name: example-node-01}
+
+    - name: does not fire on one detection repeating
+      description: >-
+        The same Falco rule three times on one node. Volume of a single detection is
+        the shape of a housekeeping loop, not of an attack chain.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["falco", "falco_exploitation"], level: 10}
+          decoder: {name: json}
+          data: {rule: Run shell untrusted, source: syscall, priority: Notice, output_fields: {container.name: proxy, proc.name: sh, proc.pname: nginx}}
+          agent: {name: example-node-01}
+        - rule: {groups: ["falco", "falco_exploitation"], level: 10}
+          decoder: {name: json}
+          data: {rule: Run shell untrusted, source: syscall, priority: Notice, output_fields: {container.name: proxy, proc.name: sh, proc.pname: nginx}}
+          agent: {name: example-node-01}
+        - rule: {groups: ["falco", "falco_exploitation"], level: 10}
+          decoder: {name: json}
+          data: {rule: Run shell untrusted, source: syscall, priority: Notice, output_fields: {container.name: proxy, proc.name: sh, proc.pname: nginx}}
+          agent: {name: example-node-01}
+
+    - name: does not fire when the two detections are on different nodes
+      description: >-
+        Two different detections, but on two nodes. The key is the node, so each
+        node sees only one distinct rule.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["falco", "falco_exploitation"], level: 14}
+          decoder: {name: json}
+          data: {rule: Process started by application server, source: syscall, priority: Critical, output_fields: {container.name: web-frontend}}
+          agent: {name: example-node-01}
+        - rule: {groups: ["falco", "falco_discovery"], level: 8}
+          decoder: {name: json}
+          data: {rule: Contact K8S API Server From Container, source: syscall, priority: Notice, output_fields: {container.name: api-client}}
+          agent: {name: example-node-02}
+
+    - name: does not fire when the second detection is below level 8
+      description: >-
+        A generic Falco Warning (level 7) next to a real detection. Warnings alone
+        are indexed telemetry and must not complete a chain.
+      expect_fire: false
+      samples:
+        - rule: {groups: ["falco", "falco_exploitation"], level: 14}
+          decoder: {name: json}
+          data: {rule: Process started by application server, source: syscall, priority: Critical, output_fields: {container.name: web-frontend}}
+          agent: {name: example-node-01}
+        - rule: {groups: ["falco"], level: 7}
+          decoder: {name: json}
+          data: {rule: Read sensitive file untrusted, source: syscall, priority: Warning, output_fields: {container.name: web-frontend}}
+          agent: {name: example-node-01}
+
+required_fields:
+  - agent.name
+  - data.rule
+  - rule.groups
+  - rule.level
