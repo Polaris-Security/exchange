@@ -273,6 +273,37 @@
     "path": "rules/mail-failed-logins-followed-by-successful-login-35cc0328.yml"
   },
   {
+    "uuid": "ec86ee1c-5594-41a2-95bf-088330aa5059",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "Falco multi-stage runtime chain on one node",
+    "description": "Two or more different Falco detections of high severity on the same node inside thirty minutes. A single Falco detection is already an alert in its own right; this rule raises one incident when they chain: code execution under a server process, then a binary that is not in the image, fileless execution, a call to the Kubernetes API, or a container-escape primitive. One exploited workload rarely trips only one of these.\nDiversity is counted on `data.rule`, the Falco rule name as Falco emits it, so a single detection repeating a hundred times (a noisy shell rule, a housekeeping loop) never satisfies the rule on its own. It needs two distinct kinds of behaviour.\nThe key is the NODE (`host.name`, which resolves to `agent.name`), not the container. That works only when Falco events reach Wazuh through each node's own agent (a `<localfile>` with `log_format json` on Falco's JSON output file), not through a central log shipper, which would put every event on one agent name and turn this into \"two detections anywhere\". Polaris has no container correlation key, so two unrelated containers on one node can combine. With tuned Falco that is rare, and it is still worth a look.\nRequires the Falco JSON events to be decoded by Wazuh's JSON decoder (so the Falco rule name lands in `data.rule`), every Falco rule to carry the `falco` rule group, and Falco priorities mapped onto Wazuh levels so that Warning and below sit under 8 while Error and above, plus the exploitation-specific rules, sit at 8 or higher. The reference mapping is Notice 5, Warning 7, Error 9, Critical 12, Emergency or Alert 14, with the K8s API contact rule raised to 8 and the exploitation rules to 10-14. See Portability in the pull request. Without the `falco` group this artifact imports cleanly and never fires.\nVolume: on the reference deployment (one k3s node running about forty workloads, around 250 process starts per second), zero hits after Falco was tuned. Before tuning, the first pilot hour would have produced exactly one finding, from two false-positive sources that have since been given scoped Falco exceptions. That is the failure mode to expect: a new false positive plus any other one. Fix it with a Falco exception, not by raising this threshold.",
+    "tags": [
+      "falco",
+      "runtime-security",
+      "containers",
+      "kubernetes",
+      "exploitation",
+      "post-exploitation"
+    ],
+    "attack_techniques": [
+      "T1190",
+      "T1059",
+      "T1105",
+      "T1611",
+      "T1613"
+    ],
+    "required_fields": [
+      "agent.name",
+      "data.rule",
+      "rule.groups",
+      "rule.level"
+    ],
+    "path": "rules/falco-multi-stage-runtime-chain-ec86ee1c.yml"
+  },
+  {
     "uuid": "aeb4c306-6743-4adc-b2f9-fbb507bcc3a2",
     "revision": 1,
     "kind": "search_rule",
