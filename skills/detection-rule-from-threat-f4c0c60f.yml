@@ -1,0 +1,78 @@
+schema_version: 1
+uuid: f4c0c60f-5766-4749-a5fb-2c1fc3849216
+revision: 3
+kind: skill
+status: active
+status_reason: ''
+name: detection-rule-from-threat
+description: Use when your research found a high or critical threat to software the organization runs,
+  to decide whether to leave a Search Rule watching for it and how to build one with create_search_rule.
+spec:
+  body: "# Turning a threat you found into a Search Rule\n\n`create_search_rule` leaves a detection running\
+    \ after your run ends: a Scheduled Search\nRule in the organization that watches its SIEM Events for\
+    \ someone exploiting the threat\nyou researched, and raises an Incident to on-call when it fires.\
+    \ The rule expires after\nthe lifetime you choose and is archived on its own. Each call waits for\
+    \ a staff member to\napprove it: that is expected, so make the call self-explanatory.\n\n## When to\
+    \ create one\n\nAll of these must hold:\n\n- The threat is **high or critical**, and new: a CVE added\
+    \ to CISA KEV, a vendor advisory\n  with exploitation seen or a public exploit, or an active campaign.\n\
+    - The organization **runs the affected product**: `check_exposure`, `host_inventory` or\n  `lookup_assets`\
+    \ showed it. A threat to software nobody here runs gets no rule.\n- An attempt **would leave a trace\
+    \ in the Events**: a source the organization already\n  logs would record it (a firewall connection\
+    \ to the vulnerable service's port, a request\n  path or parameter at the reverse proxy, a user agent,\
+    \ a process or command line, a log\n  message). This is about what the Events *would* record, never\
+    \ about whether an attempt\n  was seen. \"Nothing found\", \"only blocked scans\" or \"refuted today\"\
+    \ is the normal case,\n  and exactly when a rule is worth it: it watches for the attempt that has\
+    \ not come yet.\n\nYou may skip a threat for missing telemetry only after `describe_event_fields`\
+    \ showed the\nfield is not there, and you name that field when you say why you skipped it.\n\n**Example.**\
+    \ A critical unauthenticated RCE in a backup server's coordinator service on TCP\n9401, the product\
+    \ present on one host, and today's hunt found only two blocked scans. That\nis a rule: the firewall\
+    \ logs record connections to 9401, so `create_search_rule` with a\nleg on the firewall's destination\
+    \ port field `equals 9401` and its action field `equals`\nthe value the firewall uses for an allowed\
+    \ connection (both looked up with\n`describe_event_fields`), severity critical, 30 days if there is\
+    \ no fix applied yet.\n\nAt most three rules a run, so spend them on the threats that matter most.\n\
+    \n## Building it\n\n1. **Find the fields first.** Call `describe_event_fields` and use only fields\
+    \ it lists.\n   A field that does not exist is refused. Web attacks usually show in the request URL\
+    \ or\n   the raw log line (e.g. `data.url`, `full_log`); endpoint attacks in process and command\n\
+    \   line fields. Check the names; never guess them.\n2. **One leg, one behaviour.** Everything in\
+    \ a rule is AND, never OR. The rule fires\n   only when **every** leg matches, on the same `correlation_key`\
+    \ value, inside the\n   window; and within a leg, every condition must match the **same Event**. There\
+    \ is no\n   way to say \"any of these\".\n   - Eight indicators as eight legs on `host.name` means\
+    \ all eight on one host within\n     the window: the rule never fires, even during a real infection.\
+    \ That is a mistake.\n   - A threat has one live rule (its `threat_reference`), so a second call for\
+    \ it only\n     extends the first. Choose the **single most distinctive observable** the Events\n\
+    \     would record (the C2 domain, the exploit's request path with its payload marker,\n     the tool's\
+    \ user agent) and put it in one leg. List the other indicators in the\n     rule's description and\
+    \ your report, not as legs or extra conditions.\n   - Use extra conditions only to narrow that same\
+    \ Event: the vulnerable path *and* the\n     payload marker in one request, or the destination port\
+    \ *and* the allowed action in\n     one firewall entry. `equals` for exact values, `cidr` for an address\
+    \ range.\n   - Leave `count` at 1 and `correlation_key` at `none`. Raise them only when the attack\n\
+    \     shows by repetition (a brute force or a scan: `count` >= N, `correlation_key`\n     `src_ip`).\n\
+    \   - Avoid broad terms on their own: `contains \"Temp\"`, `\"Run\"` or `\"powershell\"` match\n \
+    \    ordinary activity. Pair them with something only the attack produces.\n   - Match the event type\
+    \ to the behaviour. Sysmon event 1 is process creation, 3 a\n     network connection, 11 a file creation,\
+    \ 13 a registry value set, 22 a DNS query.\n     A registry or DNS indicator under an event 1 condition\
+    \ never matches.\n3. **Prefer behaviour over indicators.** Attacker IPs and domains change within\
+    \ days;\n   the exploit's shape does not. Use IOCs only for an active campaign and the 7-day lifetime.\n\
+    4. **Name and describe it for the analyst who gets the Incident.** Name:\n   `<CVE or campaign> <product>\
+    \ exploitation attempt`. Description: what the rule looks\n   for, what a hit means, and what to check\
+    \ first. `threat_reference` is the CVE id\n   (e.g. `CVE-2026-12345`) or a short campaign slug (e.g.\
+    \ `strikestub-clickfix`), never\n   a sentence; use the same one every time you meet that threat;\
+    \ `source` is the research handle of\n   the advisory that names it.\n5. **Severity** follows the\
+    \ threat: `critical` for exploited, unpatched, internet-facing;\n   otherwise `high`.\n\n## Choosing\
+    \ the lifetime\n\n- **7 days**: an active campaign, or a rule built on indicators (IPs, domains) that\
+    \ age fast.\n- **14 days**: a newly disclosed CVE, while patching catches up.\n- **30 days**: a CVE\
+    \ that is exploited in the wild and has no fix yet, or a fix the\n  organization cannot apply quickly.\n\
+    \n## Reading the answer\n\n- **Refused as an unknown field, a bad condition or a rule that cannot\
+    \ run**: fix exactly\n  what the refusal names and call again.\n- **Refused as noisy** (too many findings\
+    \ in the last 24 hours): your conditions match\n  ordinary traffic. Make them more specific; never\
+    \ just raise the count to get past it.\n- **Created, no matches in 7 days**: the normal outcome. Mention\
+    \ the rule (id, name,\n  expiry) in your report.\n- **Created with `already_matched`**: the rule would\
+    \ have fired in the last week. This may\n  be exploitation that already happened. Do not stop at the\
+    \ rule. Cite the Validation Run\n  and its samples: investigate it yourself, or refer it to a team\
+    \ member who can search\n  Events. If the evidence holds, open an Incident. Say what you found in\
+    \ your report either way.\n- **Extended**: the threat already has a live rule. Your conditions were\
+    \ not used; the\n  existing rule now runs longer. Do not try again under a different reference.\n\
+    - **Ceiling reached**: the rule has run for 90 days. Say in your report that a person\n  should decide\
+    \ whether to make it permanent.\n\n## Never\n\n- Create a rule for a threat you did not research in\
+    \ this run, or cite research that does\n  not name it.\n- Use a rule to report something. A finding\
+    \ goes in your report or an Incident. A rule\n  watches for what has not happened yet.\n"
