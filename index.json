@@ -542,6 +542,33 @@
     "path": "rules/nginx2root-nginx-worker-process-crashed-ae90f1be.yml"
   },
   {
+    "uuid": "448e8f96-e83b-4236-a938-ad832e015813",
+    "revision": 1,
+    "kind": "search_rule",
+    "status": "active",
+    "status_reason": "",
+    "name": "NGINX2Root: nginx worker process started a program",
+    "description": "Possible code execution through the NGINX2Root bugs (CVE-2026-123007, CVE-2026-123633, CVE-2026-123634, CVE-2026-121810, CVE-2026-113425): a Falco execve event whose parent process is 'nginx: worker process'. The researchers call a program started by an nginx worker the clearest sign of compromise. Requires Falco events in Wazuh. Plain nginx workers never start programs; some nginx-based products do (e.g. BunkerWeb runs 'sh -c' housekeeping: rm/mkdir/ls under /var/cache/bunkerweb, nginx -t, modsecurity_audit.py), so review the command line. curl, wget, a reverse shell or writes to /tmp are an incident. Fixed in nginx 1.31.9. Source: https://xint.io/blog/nginx2root-remote-code-execution",
+    "tags": [
+      "nginx",
+      "nginx2root",
+      "falco",
+      "CVE-2026-123007",
+      "CVE-2026-123633",
+      "CVE-2026-123634",
+      "CVE-2026-121810",
+      "CVE-2026-113425"
+    ],
+    "attack_techniques": [
+      "T1190",
+      "T1059.004"
+    ],
+    "required_fields": [
+      "data.output_fields.proc.pexe"
+    ],
+    "path": "rules/nginx2root-nginx-worker-process-started-a-program-448e8f96.yml"
+  },
+  {
     "uuid": "c7695c06-c7fe-4741-9b0f-5f1b8502ac93",
     "revision": 2,
     "kind": "search_rule",
